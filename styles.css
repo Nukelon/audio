@@ -160,17 +160,61 @@ button:not(:disabled):hover {
   padding: 1.25rem 1.5rem;
 }
 
-.result a {
-  display: inline-block;
-  margin-top: 0.5rem;
+.result p {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.75);
   color: #38bdf8;
   font-weight: 600;
   text-decoration: none;
-  transition: color 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
-.result a:hover {
+.download-link:hover {
+  background: rgba(59, 130, 246, 0.2);
   color: #7dd3fc;
+}
+
+.download-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.download-list a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.75);
+  color: #38bdf8;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.download-list a:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #7dd3fc;
+}
+
+.download-size {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.7);
+  font-weight: 500;
 }
 
 .log pre {
