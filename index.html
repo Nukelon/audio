@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ffmpeg.wasm 多线程模板 (GitHub Pages)</title>
+  <style>
+    body { font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 24px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 12px; background:#f2f3f5; }
+    #log { white-space: pre-wrap; background:#0b1020; color:#e6eaff; padding:12px; border-radius:8px; max-height: 300px; overflow:auto; }
+    button { padding:8px 12px; }
+    input[type="number"]{ width: 6em; }
+  </style>
+</head>
+<body>
+  <h1>FFmpeg.wasm 多线程（core-mt）模板</h1>
+
+  <p>
+    隔离状态：
+    <span id="iso" class="pill">检测中...</span>
+  </p>
+
+  <p>
+    <input id="file" type="file" accept="audio/*,video/*" />
+    <button id="btn-load">加载 FFmpeg 核心</button>
+    <button id="btn-mp3" disabled>转 MP3</button>
+    <span id="download"></span>
+  </p>
+
+  <details>
+    <summary>可选：裁剪一段音频（起始秒 &amp; 时长秒）</summary>
+    <p>
+      <label>起始 <input id="ss" type="number" min="0" step="0.1" value="0"></label>
+      <label>时长 <input id="t" type="number" min="0" step="0.1" value="5"></label>
+      <button id="btn-trim" disabled>裁剪为 WAV(16k 单声道)</button>
+    </p>
+  </details>
+
+  <h3>日志</h3>
+  <div id="log"></div>
+
+  <!-- 注册 SW：首次加载后会自动刷新一次，使页面受 SW 控制并附带 COOP/COEP 头 -->
+  <script>
+    if ('serviceWorker' in navigator && !window.crossOriginIsolated) {
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('./coi-serviceworker.js', { scope: './' });
+          // 当 SW 接管页面时触发一次刷新
+          if (!navigator.serviceWorker.controller) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+          }
+        } catch (e) {
+          console.warn('ServiceWorker 注册失败：', e);
+        }
+      });
+    }
+  </script>
+
+  <!-- 业务逻辑 -->
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
