@@ -7,9 +7,12 @@ const logBox = $("#log");
 const log = (...args) => { logBox.textContent += args.join(' ') + "\n"; logBox.scrollTop = logBox.scrollHeight; };
 
 // --- 显示跨源隔离状态
-const isoPill = $("#iso");
-const setIso = () => isoPill.textContent = window.crossOriginIsolated ? "✅ 已隔离 (SharedArrayBuffer 可用)" : "⚠️ 未隔离 (将尝试通过 SW 启用)";
-setIso();
+const ensureIsoIndicator = () => {
+  if (typeof window.__updateIsolationStatus === 'function') {
+    window.__updateIsolationStatus();
+  }
+};
+ensureIsoIndicator();
 
 const ffmpeg = new FFmpeg();
 ffmpeg.on('log', ({ message }) => log(message));

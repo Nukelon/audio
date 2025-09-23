@@ -20,6 +20,56 @@
     <span id="iso" class="pill">检测中...</span>
   </p>
 
+  <script>
+    (() => {
+      const isoPill = document.querySelector('#iso');
+      if (!isoPill) return;
+
+      const setIsoText = () => {
+        isoPill.textContent = window.crossOriginIsolated
+          ? '✅ 已隔离 (SharedArrayBuffer 可用)'
+          : '⚠️ 未隔离 (将尝试通过 SW 启用)';
+      };
+
+      let pollTimer = null;
+      const updateWithRetry = () => {
+        setIsoText();
+        if (window.crossOriginIsolated && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      };
+
+      const ensureIsolationStatus = () => {
+        updateWithRetry();
+        if (!window.crossOriginIsolated && pollTimer === null) {
+          let attempts = 0;
+          pollTimer = setInterval(() => {
+            attempts += 1;
+            updateWithRetry();
+            if (window.crossOriginIsolated || attempts >= 20) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+            }
+          }, 500);
+        }
+      };
+
+      ensureIsolationStatus();
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('controllerchange', ensureIsolationStatus);
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'coi-ready') {
+            ensureIsolationStatus();
+          }
+        });
+      }
+
+      window.__updateIsolationStatus = ensureIsolationStatus;
+    })();
+  </script>
+
   <p>
     <input id="file" type="file" accept="audio/*,video/*" />
     <button id="btn-load">加载 FFmpeg 核心</button>
