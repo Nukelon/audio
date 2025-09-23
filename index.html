@@ -3,48 +3,54 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>批量视频音频提取器</title>
+    <title>音视频操作工具集</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="app-selection">
     <header>
-      <h1>批量视频音频提取器</h1>
-      <p>上传任意数量的视频或压缩文件，自动提取其中所有视频的原始音频编码并提供下载。所有处理均在浏览器本地完成，适用于 Windows、iOS 与 Android。</p>
+      <h1>音视频操作</h1>
+      <p>
+        在浏览器中即可完成常用的音视频工具操作，所有处理均在本地执行，保证隐私安全。
+      </p>
     </header>
     <main>
-      <section class="uploader" id="drop-zone">
-        <input
-          type="file"
-          id="file-input"
-          accept="video/*,.zip,application/zip"
-          multiple
-        />
-        <label for="file-input" id="file-label">
-          <span class="label-main">拖放或点击选择文件</span>
-          <span class="label-sub">支持多视频文件与 ZIP 压缩包，处理过程在本地完成</span>
-        </label>
+      <section class="intro">
+        <p>
+          选择一个工具开始使用。所有应用均无需安装软件，也无需上传文件到服务器。
+        </p>
       </section>
-      <section class="controls">
-        <div class="file-info" id="file-info">尚未选择文件</div>
-        <button id="convert-btn" disabled>开始批量提取音频</button>
-      </section>
-      <section class="progress" aria-live="polite">
-        <div class="progress-bar" id="progress-bar"></div>
-        <div class="status" id="status">等待操作</div>
-      </section>
-      <section class="result" id="result" hidden>
-        <h2>提取完成</h2>
-        <p id="result-summary"></p>
-        <div id="download-list" class="download-list"></div>
-      </section>
-      <section class="log" aria-live="polite">
-        <h2>处理日志</h2>
-        <pre id="log-output"></pre>
+      <section class="app-grid" aria-label="可用应用列表">
+        <article class="app-card">
+          <div class="app-card-body">
+            <header class="app-card-header">
+              <span class="app-card-tag">热门</span>
+              <h2>批量视频音频提取器</h2>
+            </header>
+            <p>
+              支持批量选择视频或 ZIP 压缩包，自动提取其中所有视频的原始音频编码并提供下载。
+            </p>
+            <ul>
+              <li>支持绝大多数常见视频格式</li>
+              <li>可直接处理压缩包中的视频</li>
+              <li>所有转换均在本地完成，保护隐私</li>
+            </ul>
+          </div>
+          <a class="app-card-action" href="extractor.html">进入应用</a>
+        </article>
+        <article class="app-card app-card--disabled" aria-disabled="true">
+          <div class="app-card-body">
+            <header class="app-card-header">
+              <span class="app-card-tag app-card-tag--muted">即将上线</span>
+              <h2>更多工具</h2>
+            </header>
+            <p>我们正在积极构建更多音视频处理功能，敬请期待。</p>
+          </div>
+          <span class="app-card-action">敬请期待</span>
+        </article>
       </section>
     </main>
     <footer>
-      <p>所有转换均在浏览器中完成，不会上传到服务器。</p>
+      <p>音视频操作工具集 · 所有处理均在设备本地完成。</p>
     </footer>
-    <script type="module" src="app.js"></script>
   </body>
 </html>
