@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>视频转音频提取器</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>视频音频提取器</h1>
+      <p>上传本地视频，在线提取原始音频编码并立即下载。完全在浏览器中运行，适用于 Windows、iOS 与 Android。</p>
+    </header>
+    <main>
+      <section class="uploader" id="drop-zone">
+        <input type="file" id="file-input" accept="video/*" />
+        <label for="file-input" id="file-label">
+          <span class="label-main">拖放或点击选择视频文件</span>
+          <span class="label-sub">支持主流视频格式，处理过程在本地完成</span>
+        </label>
+      </section>
+      <section class="controls">
+        <div class="file-info" id="file-info">尚未选择文件</div>
+        <button id="convert-btn" disabled>开始提取音频</button>
+      </section>
+      <section class="progress" aria-live="polite">
+        <div class="progress-bar" id="progress-bar"></div>
+        <div class="status" id="status">等待操作</div>
+      </section>
+      <section class="result" id="result" hidden>
+        <h2>提取完成</h2>
+        <a id="download-link" download>点击下载音频</a>
+      </section>
+      <section class="log" aria-live="polite">
+        <h2>处理日志</h2>
+        <pre id="log-output"></pre>
+      </section>
+    </main>
+    <footer>
+      <p>所有转换均在浏览器中完成，不会上传到服务器。</p>
+    </footer>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
