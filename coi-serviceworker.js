@@ -1,7 +1,15 @@
 // coi-serviceworker.js
 // 基于常见实现：补 COOP/COEP 头以启用 SharedArrayBuffer
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    for (const client of clients) {
+      client.postMessage({ type: 'coi-ready' });
+    }
+  })());
+});
 
 self.addEventListener('fetch', (event) => {
   const r = event.request;
