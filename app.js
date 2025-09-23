@@ -1,5 +1,5 @@
-import { FFmpeg } from "https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/esm/classes.js";
-import { fetchFile } from "https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js";
+import { FFmpeg } from "./vendor/ffmpeg/classes.js";
+import { fetchFile } from "./vendor/util/index.js";
 
 const dropZone = document.getElementById("drop-zone");
 const fileInput = document.getElementById("file-input");
