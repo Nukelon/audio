@@ -3,7 +3,7 @@ import { fetchFile } from "./vendor/util/index.js";
 import { unzipSync, zipSync } from "./vendor/fflate.min.js";
 
 const dropZone = document.getElementById("drop-zone");
-const fileInput = document.getElementById("file-input");
+let fileInput = document.getElementById("file-input");
 const analyzeBtn = document.getElementById("analyze-btn");
 const convertBtn = document.getElementById("convert-btn");
 const fileInfo = document.getElementById("file-info");
@@ -146,12 +146,51 @@ const videoMimeTypes = [
   "application/x-zip-compressed",
 ];
 
-const audioAcceptTypes = `${audioMimeTypes.join(",")},${Array.from(audioExtensions)
-  .map((ext) => `.${ext}`)
-  .join(",")},.zip`;
-const videoAcceptTypes = `${videoMimeTypes.join(",")},${Array.from(videoExtensions)
-  .map((ext) => `.${ext}`)
-  .join(",")},.zip`;
+const isIOSDevice =
+  typeof navigator !== "undefined" &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+const iosAudioUniformTypes = [
+  "public.audio",
+  "public.mpeg-4-audio",
+  "org.matroska.audio",
+];
+const iosVideoUniformTypes = [
+  "public.movie",
+  "public.video",
+  "org.matroska.mkv",
+  "org.matroska.video",
+  "org.webmproject.webm",
+  "com.apple.quicktime-movie",
+];
+const iosZipUniformTypes = ["com.pkware.zip-archive", "public.zip-archive"];
+
+const baseAudioAcceptList = [
+  ...audioMimeTypes,
+  ...Array.from(audioExtensions).map((ext) => `.${ext}`),
+  ".zip",
+];
+
+const baseVideoAcceptList = [
+  ...videoMimeTypes,
+  ...Array.from(videoExtensions).map((ext) => `.${ext}`),
+  ".zip",
+];
+
+const buildAcceptList = (baseList, iosSpecific = []) => {
+  const items = new Set(baseList);
+  if (isIOSDevice) {
+    iosZipUniformTypes.forEach((type) => items.add(type));
+    iosSpecific.forEach((type) => items.add(type));
+  }
+  return Array.from(items).join(",");
+};
+
+const getAcceptTypesForMode = (mode) =>
+  mode === MODES.AUDIO
+    ? buildAcceptList(baseAudioAcceptList, iosAudioUniformTypes)
+    : buildAcceptList(baseVideoAcceptList, iosVideoUniformTypes);
 
 const modeDescriptions = {
   [MODES.AUDIO]: "支持音频文件与 ZIP 压缩包，所有处理均在本地完成",
@@ -482,15 +521,12 @@ const updateModeTabs = () => {
 };
 
 const updateFileInputForMode = ({ resetValue = false } = {}) => {
-  const acceptValue = currentMode === MODES.AUDIO ? audioAcceptTypes : videoAcceptTypes;
-  if (fileInput.accept !== acceptValue) {
-    fileInput.accept = acceptValue;
-    try {
-      fileInput.setAttribute("accept", acceptValue);
-    } catch (error) {
-      // ignore attribute sync issues
-    }
+  const acceptValue = getAcceptTypesForMode(currentMode);
+  if (!fileInput) return;
+  if (fileInput.dataset.currentAccept !== acceptValue) {
+    rebuildFileInputElement(acceptValue);
   }
+  setInputAcceptValue(fileInput, acceptValue);
   if (labelSub && modeDescriptions[currentMode]) {
     labelSub.textContent = modeDescriptions[currentMode];
   }
@@ -580,6 +616,47 @@ const resetProgress = () => {
   conversionProgress.label = "";
 };
 
+const handleFileInputChange = (event) => {
+  const files = event?.target?.files;
+  selectFiles(files ? Array.from(files) : []);
+};
+
+const registerFileInputListeners = (input) => {
+  if (!input) return;
+  input.addEventListener("change", handleFileInputChange);
+};
+
+const setInputAcceptValue = (input, acceptValue) => {
+  if (!input) return;
+  if (acceptValue) {
+    input.accept = acceptValue;
+    try {
+      input.setAttribute("accept", acceptValue);
+    } catch (error) {
+      // ignore inability to sync attributes on certain browsers
+    }
+  } else {
+    input.removeAttribute("accept");
+  }
+  input.dataset.currentAccept = acceptValue;
+};
+
+const rebuildFileInputElement = (acceptValue) => {
+  if (!fileInput || !fileInput.parentNode) return;
+  const newInput = fileInput.cloneNode();
+  newInput.value = "";
+  newInput.type = "file";
+  newInput.multiple = fileInput.multiple;
+  newInput.id = fileInput.id;
+  if (fileInput.name) {
+    newInput.name = fileInput.name;
+  }
+  setInputAcceptValue(newInput, acceptValue);
+  fileInput.parentNode.replaceChild(newInput, fileInput);
+  fileInput = newInput;
+  registerFileInputListeners(fileInput);
+};
+
 const toggleFieldVisibility = (element, shouldHide) => {
   if (!element) return;
   element.hidden = shouldHide;
@@ -637,6 +714,13 @@ const selectFiles = (files = []) => {
   state.videoEntriesWithAudio = false;
   state.results = [];
   state.config = null;
+  if (validFiles.length === 0) {
+    try {
+      fileInput.value = "";
+    } catch (error) {
+      // ignore inability to reset programmatically
+    }
+  }
   if (ffmpegReady) {
     cleanupTempFiles().catch((error) => {
       console.warn("清理临时文件时出错", error);
@@ -954,6 +1038,9 @@ const populateSelect = (select, options, { includeCopyForAny = false } = {}) => 
 const getAudioContainerByValue = (value) => audioContainers.find((item) => item.value === value);
 const getVideoContainerByValue = (value) => videoContainers.find((item) => item.value === value);
 
+const shouldHideAudioContainerGroup = () =>
+  currentMode === MODES.VIDEO || (state.hasVideoEntries && !state.hasAudioEntries);
+
 const prepareAudioSelects = () => {
   if (!state.hasAudioEntries && !state.videoEntriesWithAudio) {
     audioOptions.hidden = true;
@@ -962,7 +1049,7 @@ const prepareAudioSelects = () => {
   }
   audioOptions.hidden = false;
 
-  const hideContainerGroup = state.hasVideoEntries && !state.hasAudioEntries;
+  const hideContainerGroup = shouldHideAudioContainerGroup();
   toggleFieldVisibility(audioContainerGroup, hideContainerGroup);
 
   if (!hideContainerGroup) {
@@ -991,7 +1078,7 @@ const prepareVideoSelects = () => {
 };
 
 const updateAudioCodecOptions = () => {
-  const hideContainerGroup = state.hasVideoEntries && !state.hasAudioEntries;
+  const hideContainerGroup = shouldHideAudioContainerGroup();
   toggleFieldVisibility(audioContainerGroup, hideContainerGroup);
   if (hideContainerGroup) {
     const container = getVideoContainerByValue(videoContainerSelect.value) || { audioCodecs: [] };
@@ -1666,10 +1753,7 @@ convertBtn.addEventListener("click", () => {
   convertEntries();
 });
 
-fileInput.addEventListener("change", (event) => {
-  const { files } = event.target;
-  selectFiles(files ? Array.from(files) : []);
-});
+registerFileInputListeners(fileInput);
 
 dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -1706,5 +1790,10 @@ updateFileInputForMode();
 updateFileInfo();
 updateAnalyzeAndClearState();
 renderResults(state);
+
+analysisSection.hidden = true;
+configSection.hidden = true;
+updateAudioQualityVisibility();
+updateVideoQualityVisibility();
 
 setStatus("等待操作");
