@@ -3,8 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>全能格式转换 · 音视频操作</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20240729a" />
   </head>
   <body class="converter-page">
     <header>
@@ -109,12 +112,12 @@
             <div class="field">
               <label for="video-quality-select">视频质量</label>
               <select id="video-quality-select">
+                <option value="lossless">无损</option>
                 <option value="ultra">极高</option>
                 <option value="high">高</option>
                 <option value="medium" selected>中</option>
                 <option value="low">低</option>
                 <option value="verylow">极低</option>
-                <option value="lossless">无损</option>
                 <option value="custom">自定义</option>
               </select>
             </div>
@@ -143,12 +146,12 @@
             <div class="field">
               <label for="audio-quality-select">音频质量</label>
               <select id="audio-quality-select">
+                <option value="lossless">无损</option>
                 <option value="ultra">极高</option>
                 <option value="high">高</option>
                 <option value="medium" selected>中</option>
                 <option value="low">低</option>
                 <option value="verylow">极低</option>
-                <option value="lossless">无损</option>
                 <option value="custom">自定义</option>
               </select>
             </div>
@@ -185,6 +188,6 @@
     <footer>
       <p>所有操作均在浏览器中完成，不会上传到服务器。</p>
     </footer>
-    <script type="module" src="converter.js"></script>
+    <script type="module" src="converter.js?v=20240729a"></script>
   </body>
 </html>
