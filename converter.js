@@ -146,12 +146,45 @@ const videoMimeTypes = [
   "application/x-zip-compressed",
 ];
 
-const audioAcceptTypes = `${audioMimeTypes.join(",")},${Array.from(audioExtensions)
-  .map((ext) => `.${ext}`)
-  .join(",")},.zip`;
-const videoAcceptTypes = `${videoMimeTypes.join(",")},${Array.from(videoExtensions)
-  .map((ext) => `.${ext}`)
-  .join(",")},.zip`;
+const isIOSDevice =
+  typeof navigator !== "undefined" &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+const iosAudioUniformTypes = ["public.audio", "public.mpeg-4-audio"];
+const iosVideoUniformTypes = [
+  "public.movie",
+  "public.video",
+  "org.matroska.mkv",
+  "com.apple.quicktime-movie",
+];
+const iosZipUniformTypes = ["com.pkware.zip-archive", "public.zip-archive"];
+
+const baseAudioAcceptList = [
+  ...audioMimeTypes,
+  ...Array.from(audioExtensions).map((ext) => `.${ext}`),
+  ".zip",
+];
+
+const baseVideoAcceptList = [
+  ...videoMimeTypes,
+  ...Array.from(videoExtensions).map((ext) => `.${ext}`),
+  ".zip",
+];
+
+const buildAcceptList = (baseList, iosSpecific = []) => {
+  const items = new Set(baseList);
+  if (isIOSDevice) {
+    iosZipUniformTypes.forEach((type) => items.add(type));
+    iosSpecific.forEach((type) => items.add(type));
+  }
+  return Array.from(items).join(",");
+};
+
+const getAcceptTypesForMode = (mode) =>
+  mode === MODES.AUDIO
+    ? buildAcceptList(baseAudioAcceptList, iosAudioUniformTypes)
+    : buildAcceptList(baseVideoAcceptList, iosVideoUniformTypes);
 
 const modeDescriptions = {
   [MODES.AUDIO]: "支持音频文件与 ZIP 压缩包，所有处理均在本地完成",
@@ -482,7 +515,7 @@ const updateModeTabs = () => {
 };
 
 const updateFileInputForMode = ({ resetValue = false } = {}) => {
-  const acceptValue = currentMode === MODES.AUDIO ? audioAcceptTypes : videoAcceptTypes;
+  const acceptValue = getAcceptTypesForMode(currentMode);
   if (fileInput.accept !== acceptValue) {
     fileInput.accept = acceptValue;
     try {
@@ -637,6 +670,13 @@ const selectFiles = (files = []) => {
   state.videoEntriesWithAudio = false;
   state.results = [];
   state.config = null;
+  if (validFiles.length === 0) {
+    try {
+      fileInput.value = "";
+    } catch (error) {
+      // ignore inability to reset programmatically
+    }
+  }
   if (ffmpegReady) {
     cleanupTempFiles().catch((error) => {
       console.warn("清理临时文件时出错", error);
@@ -954,6 +994,9 @@ const populateSelect = (select, options, { includeCopyForAny = false } = {}) => 
 const getAudioContainerByValue = (value) => audioContainers.find((item) => item.value === value);
 const getVideoContainerByValue = (value) => videoContainers.find((item) => item.value === value);
 
+const shouldHideAudioContainerGroup = () =>
+  currentMode === MODES.VIDEO || (state.hasVideoEntries && !state.hasAudioEntries);
+
 const prepareAudioSelects = () => {
   if (!state.hasAudioEntries && !state.videoEntriesWithAudio) {
     audioOptions.hidden = true;
@@ -962,7 +1005,7 @@ const prepareAudioSelects = () => {
   }
   audioOptions.hidden = false;
 
-  const hideContainerGroup = state.hasVideoEntries && !state.hasAudioEntries;
+  const hideContainerGroup = shouldHideAudioContainerGroup();
   toggleFieldVisibility(audioContainerGroup, hideContainerGroup);
 
   if (!hideContainerGroup) {
@@ -991,7 +1034,7 @@ const prepareVideoSelects = () => {
 };
 
 const updateAudioCodecOptions = () => {
-  const hideContainerGroup = state.hasVideoEntries && !state.hasAudioEntries;
+  const hideContainerGroup = shouldHideAudioContainerGroup();
   toggleFieldVisibility(audioContainerGroup, hideContainerGroup);
   if (hideContainerGroup) {
     const container = getVideoContainerByValue(videoContainerSelect.value) || { audioCodecs: [] };
@@ -1706,5 +1749,10 @@ updateFileInputForMode();
 updateFileInfo();
 updateAnalyzeAndClearState();
 renderResults(state);
+
+analysisSection.hidden = true;
+configSection.hidden = true;
+updateAudioQualityVisibility();
+updateVideoQualityVisibility();
 
 setStatus("等待操作");
