@@ -354,18 +354,6 @@ p {
   border: 1px solid var(--border-color);
 }
 
-.environment {
-  background: var(--surface-muted-bg);
-  border: 1px dashed var(--border-color);
-  border-radius: 12px;
-  padding: 0.85rem 1.25rem;
-  color: var(--text-tertiary);
-}
-
-.environment strong {
-  color: var(--text-secondary);
-}
-
 .file-info {
   flex: 1;
   min-width: 200px;
