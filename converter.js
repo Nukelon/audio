@@ -1280,17 +1280,38 @@ const ensureLosslessApplicable = (qualitySetting, targetCodec, sourceCodec) => {
   return { mode: "bitrate", bitrate: audioQualityProfiles.ultra.bitrate };
 };
 
+const audioCodecExtraArgs = {
+  libopus: ["-application", "audio"],
+};
+
+const audioContainerExtraArgs = {
+  opus: ["-f", "opus"],
+  ogg: ["-f", "ogg"],
+};
+
 const buildAudioArgs = (entry, outputName, settings) => {
   const args = ["-y", "-i", entry.inputName];
-  if (settings.audioCodec === "copy") {
+  const audioCodec = settings.audioCodec || "copy";
+  const audioQuality = settings.audioQuality || { mode: "bitrate" };
+  const container = (settings.container || "").toLowerCase();
+  const codecExtras = audioCodecExtraArgs[audioCodec?.toLowerCase?.() || ""];
+  const containerExtras = audioContainerExtraArgs[container];
+
+  if (audioCodec === "copy") {
     args.push("-c:a", "copy");
   } else {
-    args.push("-c:a", settings.audioCodec);
-    if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
-      args.push("-b:a", `${settings.audioQuality.bitrate}k`);
+    args.push("-c:a", audioCodec);
+    if (audioQuality.mode === "bitrate" && audioQuality.bitrate) {
+      args.push("-b:a", `${audioQuality.bitrate}k`);
     }
   }
+  if (codecExtras) {
+    args.push(...codecExtras);
+  }
   args.push("-vn");
+  if (containerExtras) {
+    args.push(...containerExtras);
+  }
   args.push(outputName);
   return args;
 };
@@ -1476,6 +1497,7 @@ const convertEntries = async () => {
         ? buildAudioArgs({ ...entry, inputName }, outputName, {
             audioCodec: settings.audioCodec,
             audioQuality: settings.audioQuality,
+            container: targetContainer,
           })
         : buildVideoArgs({ ...entry, inputName }, outputName, {
             videoCodec: settings.videoCodec,
