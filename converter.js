@@ -1291,6 +1291,12 @@ const buildAudioArgs = (entry, outputName, settings) => {
     }
   }
   args.push("-vn");
+  if (settings.audioCodec === "libopus") {
+    const extension = getExtension(outputName);
+    if (["ogg", "opus"].includes(extension)) {
+      args.push("-f", "opus");
+    }
+  }
   args.push(outputName);
   return args;
 };
