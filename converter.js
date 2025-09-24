@@ -1280,7 +1280,83 @@ const ensureLosslessApplicable = (qualitySetting, targetCodec, sourceCodec) => {
   return { mode: "bitrate", bitrate: audioQualityProfiles.ultra.bitrate };
 };
 
-const buildAudioArgs = (entry, outputName, settings) => {
+const getDefaultOpusMuxer = (extension) => {
+  if (extension === "ogg") return isIOSDevice ? "opus" : "ogg";
+  if (extension === "opus") return "opus";
+  return null;
+};
+
+const getOpusMuxerCandidates = (extension) => {
+  const preferred = getDefaultOpusMuxer(extension);
+  const fallbacks = ["ogg", "opus", null];
+  const candidates = [];
+  if (preferred !== null) {
+    candidates.push(preferred);
+  }
+  fallbacks.forEach((muxer) => {
+    if (muxer === preferred) return;
+    if (!candidates.some((value) => value === muxer)) {
+      candidates.push(muxer);
+    }
+  });
+  return candidates;
+};
+
+const resolveOpusOutputName = (baseName, targetExtension, muxer) => {
+  if (muxer === "ogg") {
+    const extension = targetExtension || "ogg";
+    return `${baseName}.${extension}`;
+  }
+  if (muxer === "opus") {
+    return `${baseName}.opus`;
+  }
+  if (targetExtension) {
+    return `${baseName}.${targetExtension}`;
+  }
+  return `${baseName}.ogg`;
+};
+
+const remuxOpusDownload = async (sourceName, targetName, cleanupSet) => {
+  if (!sourceName || !targetName || sourceName === targetName) {
+    return null;
+  }
+
+  const targetExtension = getExtension(targetName);
+  if (targetExtension !== "ogg") {
+    return null;
+  }
+
+  try {
+    await ffmpeg.deleteFile?.(targetName);
+  } catch (error) {
+    // ignore inability to delete previous remnants
+  }
+
+  appendLog("正在重新封装 Opus 输出以匹配 Ogg 容器...");
+  const remuxArgs = ["-y", "-i", sourceName, "-c:a", "copy", "-f", "ogg", targetName];
+  const exitCode = await ffmpeg.exec(remuxArgs);
+  if (exitCode !== 0) {
+    appendLog(`重新封装失败（返回码 ${exitCode}），将提供 .opus 文件作为替代`);
+    return null;
+  }
+
+  try {
+    const remuxedData = await ffmpeg.readFile(targetName);
+    if (remuxedData && remuxedData.length > 0) {
+      cleanupSet.add(targetName);
+      appendLog("已成功生成可下载的 Ogg 封装文件");
+      return remuxedData;
+    }
+    cleanupSet.add(targetName);
+  } catch (error) {
+    cleanupSet.add(targetName);
+    appendLog("读取重新封装的 Ogg 文件失败，将提供 .opus 文件作为替代");
+  }
+
+  return null;
+};
+
+const buildAudioArgs = (entry, outputName, settings, options = {}) => {
   const args = ["-y", "-i", entry.inputName];
   if (settings.audioCodec === "copy") {
     args.push("-c:a", "copy");
@@ -1289,8 +1365,21 @@ const buildAudioArgs = (entry, outputName, settings) => {
     if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
       args.push("-b:a", `${settings.audioQuality.bitrate}k`);
     }
+    if (settings.audioCodec === "libopus") {
+      args.push("-application", "audio");
+    }
   }
   args.push("-vn");
+  if (settings.audioCodec === "libopus") {
+    const extension = getExtension(outputName);
+    const muxer =
+      Object.prototype.hasOwnProperty.call(options, "forceMuxer")
+        ? options.forceMuxer
+        : getDefaultOpusMuxer(extension);
+    if (muxer) {
+      args.push("-f", muxer);
+    }
+  }
   args.push(outputName);
   return args;
 };
@@ -1472,42 +1561,147 @@ const convertEntries = async () => {
       conversionProgress.startTime = typeof performance !== "undefined" ? performance.now() : Date.now();
       conversionProgress.label = displayLabel;
 
-      const args = entry.type === "audio"
-        ? buildAudioArgs({ ...entry, inputName }, outputName, {
-            audioCodec: settings.audioCodec,
-            audioQuality: settings.audioQuality,
-          })
-        : buildVideoArgs({ ...entry, inputName }, outputName, {
+      const extension = getExtension(outputName);
+      const commandAttempts = [];
+      const registerAttempt = (attempt) => {
+        const attemptOutputName = attempt.outputName || outputName;
+        commandAttempts.push({
+          args: attempt.args,
+          outputName: attemptOutputName,
+          downloadName: attempt.downloadName || outputName,
+          postProcess: attempt.postProcess || null,
+        });
+      };
+      if (entry.type === "audio") {
+        if (settings.audioCodec === "libopus") {
+          const muxers = getOpusMuxerCandidates(extension);
+          muxers.forEach((muxer) => {
+            const resolvedOutputName = resolveOpusOutputName(baseName, extension, muxer);
+            registerAttempt({
+              args: buildAudioArgs(
+                { ...entry, inputName },
+                resolvedOutputName,
+                {
+                  audioCodec: settings.audioCodec,
+                  audioQuality: settings.audioQuality,
+                },
+                { forceMuxer: muxer }
+              ),
+              outputName: resolvedOutputName,
+              downloadName: outputName,
+              postProcess: muxer === "opus" && extension === "ogg" ? "remux-opus-to-ogg" : null,
+            });
+          });
+        } else {
+          registerAttempt({
+            args: buildAudioArgs({ ...entry, inputName }, outputName, {
+              audioCodec: settings.audioCodec,
+              audioQuality: settings.audioQuality,
+            }),
+            outputName,
+          });
+        }
+      } else {
+        registerAttempt({
+          args: buildVideoArgs({ ...entry, inputName }, outputName, {
             videoCodec: settings.videoCodec,
             audioCodec: settings.audioCodec,
             audioQuality: settings.audioQuality,
             videoQuality: settings.videoQuality,
             includeAudio: Boolean(analysis.hasAudio),
-          });
+          }),
+          outputName,
+        });
+      }
 
-      appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
       setStatus(`正在转换 ${i + 1}/${state.mediaEntries.length}：${displayLabel}`);
       let exitCode = 0;
+      let outputData = null;
+      let conversionSucceeded = false;
+      let successfulAttempt = null;
+      const outputNamesToCleanup = new Set();
       try {
-        exitCode = await ffmpeg.exec(args);
-        if (exitCode === 0) {
-          const data = await ffmpeg.readFile(outputName);
+        for (let attemptIndex = 0; attemptIndex < commandAttempts.length; attemptIndex += 1) {
+          const attempt = commandAttempts[attemptIndex];
+          const { args, outputName: attemptOutputName } = attempt;
+          if (attemptIndex > 0) {
+            appendLog(`尝试备用封装设置（${attemptIndex + 1}/${commandAttempts.length}）`);
+          }
+          try {
+            if (attemptOutputName) {
+              await ffmpeg.deleteFile?.(attemptOutputName);
+            }
+          } catch (error) {
+            // 忽略删除失败（例如文件不存在）的情况
+          }
+          if (attemptOutputName) {
+            outputNamesToCleanup.add(attemptOutputName);
+          }
+          appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
+          exitCode = await ffmpeg.exec(args);
+          if (exitCode === 0) {
+            try {
+              outputData = attemptOutputName ? await ffmpeg.readFile(attemptOutputName) : null;
+            } catch (error) {
+              outputData = null;
+            }
+            if (outputData && outputData.length > 0) {
+              conversionSucceeded = true;
+              successfulAttempt = attempt;
+              break;
+            }
+            if (commandAttempts.length > attemptIndex + 1) {
+              appendLog("输出文件为空，尝试备用封装参数...");
+            }
+          } else if (commandAttempts.length > attemptIndex + 1) {
+            appendLog(`转换失败（返回码 ${exitCode}），尝试备用封装参数...`);
+          }
+        }
+
+        if (conversionSucceeded && successfulAttempt) {
+          let finalName = successfulAttempt.downloadName || successfulAttempt.outputName || outputName;
+          let finalData = outputData;
+
+          if (
+            successfulAttempt.postProcess === "remux-opus-to-ogg" &&
+            successfulAttempt.outputName &&
+            successfulAttempt.downloadName
+          ) {
+            const remuxedData = await remuxOpusDownload(
+              successfulAttempt.outputName,
+              successfulAttempt.downloadName,
+              outputNamesToCleanup
+            );
+            if (remuxedData && remuxedData.length > 0) {
+              finalData = remuxedData;
+              finalName = successfulAttempt.downloadName;
+            } else {
+              finalName = successfulAttempt.outputName;
+            }
+          }
+
           results.push({
-            name: outputName,
-            data,
+            name: finalName,
+            data: finalData,
           });
         } else {
-          appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
-          if (exitCode === -1) {
-            appendLog("可能由于浏览器内存不足导致失败，请尝试降低视频质量或选择分辨率更低的预设后重试");
+          if (exitCode !== 0) {
+            appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
+            if (exitCode === -1) {
+              appendLog("可能由于浏览器内存不足导致失败，请尝试降低视频质量或选择分辨率更低的预设后重试");
+            }
+          } else {
+            appendLog(`转换失败（${entry.displayName}），输出文件为空，请尝试更换封装或编码设置`);
           }
         }
       } finally {
         conversionProgress.startTime = null;
-        try {
-          await ffmpeg.deleteFile?.(outputName);
-        } catch (error) {
-          appendLog(`清理输出失败：${error.message || error}`);
+        for (const name of outputNamesToCleanup) {
+          try {
+            await ffmpeg.deleteFile?.(name);
+          } catch (error) {
+            appendLog(`清理输出失败：${error.message || error}`);
+          }
         }
       }
 
