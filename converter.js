@@ -166,11 +166,6 @@ const iosVideoUniformTypes = [
 ];
 const iosZipUniformTypes = ["com.pkware.zip-archive", "public.zip-archive"];
 
-const supportsSharedArrayBuffer = typeof SharedArrayBuffer === "function";
-const supportsThreading = supportsSharedArrayBuffer && typeof Atomics === "object";
-const DEFAULT_AUDIO_THREADS = supportsThreading && !isIOSDevice ? 2 : 1;
-const DEFAULT_VIDEO_THREADS = supportsThreading ? 2 : 1;
-
 const baseAudioAcceptList = [
   ...audioMimeTypes,
   ...Array.from(audioExtensions).map((ext) => `.${ext}`),
@@ -232,6 +227,8 @@ const videoQualityProfiles = {
   low: { crf: 28, preset: "faster", scaleHeight: 720 },
   verylow: { crf: 32, preset: "veryfast", scaleHeight: 480 },
 };
+
+const DEFAULT_VIDEO_THREADS = 2;
 
 const audioContainers = [
   {
@@ -1283,29 +1280,16 @@ const ensureLosslessApplicable = (qualitySetting, targetCodec, sourceCodec) => {
   return { mode: "bitrate", bitrate: audioQualityProfiles.ultra.bitrate };
 };
 
-const applyAudioEncodingArgs = (args, codec, quality) => {
-  if (codec === "copy") {
-    args.push("-c:a", "copy");
-    return;
-  }
-
-  args.push("-c:a", codec);
-  if (quality?.mode === "bitrate" && quality.bitrate) {
-    args.push("-b:a", `${quality.bitrate}k`);
-  }
-
-  if (codec === "libopus") {
-    args.push("-application", "audio");
-  }
-
-  if (Number.isFinite(DEFAULT_AUDIO_THREADS) && DEFAULT_AUDIO_THREADS > 0) {
-    args.push("-threads:a", `${DEFAULT_AUDIO_THREADS}`);
-  }
-};
-
 const buildAudioArgs = (entry, outputName, settings) => {
   const args = ["-y", "-i", entry.inputName];
-  applyAudioEncodingArgs(args, settings.audioCodec, settings.audioQuality);
+  if (settings.audioCodec === "copy") {
+    args.push("-c:a", "copy");
+  } else {
+    args.push("-c:a", settings.audioCodec);
+    if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
+      args.push("-b:a", `${settings.audioQuality.bitrate}k`);
+    }
+  }
   args.push("-vn");
   args.push(outputName);
   return args;
@@ -1362,7 +1346,14 @@ const buildVideoArgs = (entry, outputName, settings) => {
     }
   }
   if (settings.includeAudio) {
-    applyAudioEncodingArgs(args, settings.audioCodec, settings.audioQuality);
+    if (settings.audioCodec === "copy") {
+      args.push("-c:a", "copy");
+    } else {
+      args.push("-c:a", settings.audioCodec);
+      if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
+        args.push("-b:a", `${settings.audioQuality.bitrate}k`);
+      }
+    }
   } else {
     args.push("-an");
   }
