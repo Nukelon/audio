@@ -1280,7 +1280,29 @@ const ensureLosslessApplicable = (qualitySetting, targetCodec, sourceCodec) => {
   return { mode: "bitrate", bitrate: audioQualityProfiles.ultra.bitrate };
 };
 
-const buildAudioArgs = (entry, outputName, settings) => {
+const getDefaultOpusMuxer = (extension) => {
+  if (extension === "ogg") return "ogg";
+  if (extension === "opus") return "opus";
+  return null;
+};
+
+const getOpusMuxerCandidates = (extension) => {
+  const preferred = getDefaultOpusMuxer(extension);
+  const fallbacks = ["ogg", "opus", null];
+  const candidates = [];
+  if (preferred !== null) {
+    candidates.push(preferred);
+  }
+  fallbacks.forEach((muxer) => {
+    if (muxer === preferred) return;
+    if (!candidates.some((value) => value === muxer)) {
+      candidates.push(muxer);
+    }
+  });
+  return candidates;
+};
+
+const buildAudioArgs = (entry, outputName, settings, options = {}) => {
   const args = ["-y", "-i", entry.inputName];
   if (settings.audioCodec === "copy") {
     args.push("-c:a", "copy");
@@ -1289,8 +1311,21 @@ const buildAudioArgs = (entry, outputName, settings) => {
     if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
       args.push("-b:a", `${settings.audioQuality.bitrate}k`);
     }
+    if (settings.audioCodec === "libopus") {
+      args.push("-application", "audio");
+    }
   }
   args.push("-vn");
+  if (settings.audioCodec === "libopus") {
+    const extension = getExtension(outputName);
+    const muxer =
+      Object.prototype.hasOwnProperty.call(options, "forceMuxer")
+        ? options.forceMuxer
+        : getDefaultOpusMuxer(extension);
+    if (muxer) {
+      args.push("-f", muxer);
+    }
+  }
   args.push(outputName);
   return args;
 };
@@ -1472,34 +1507,92 @@ const convertEntries = async () => {
       conversionProgress.startTime = typeof performance !== "undefined" ? performance.now() : Date.now();
       conversionProgress.label = displayLabel;
 
-      const args = entry.type === "audio"
-        ? buildAudioArgs({ ...entry, inputName }, outputName, {
-            audioCodec: settings.audioCodec,
-            audioQuality: settings.audioQuality,
-          })
-        : buildVideoArgs({ ...entry, inputName }, outputName, {
+      const commandAttempts = [];
+      if (entry.type === "audio") {
+        if (settings.audioCodec === "libopus") {
+          const extension = getExtension(outputName);
+          const muxers = getOpusMuxerCandidates(extension);
+          muxers.forEach((muxer) => {
+            commandAttempts.push({
+              args: buildAudioArgs(
+                { ...entry, inputName },
+                outputName,
+                {
+                  audioCodec: settings.audioCodec,
+                  audioQuality: settings.audioQuality,
+                },
+                { forceMuxer: muxer }
+              ),
+            });
+          });
+        } else {
+          commandAttempts.push({
+            args: buildAudioArgs({ ...entry, inputName }, outputName, {
+              audioCodec: settings.audioCodec,
+              audioQuality: settings.audioQuality,
+            }),
+          });
+        }
+      } else {
+        commandAttempts.push({
+          args: buildVideoArgs({ ...entry, inputName }, outputName, {
             videoCodec: settings.videoCodec,
             audioCodec: settings.audioCodec,
             audioQuality: settings.audioQuality,
             videoQuality: settings.videoQuality,
             includeAudio: Boolean(analysis.hasAudio),
-          });
+          }),
+        });
+      }
 
-      appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
       setStatus(`正在转换 ${i + 1}/${state.mediaEntries.length}：${displayLabel}`);
       let exitCode = 0;
+      let outputData = null;
+      let conversionSucceeded = false;
       try {
-        exitCode = await ffmpeg.exec(args);
-        if (exitCode === 0) {
-          const data = await ffmpeg.readFile(outputName);
+        for (let attemptIndex = 0; attemptIndex < commandAttempts.length; attemptIndex += 1) {
+          const { args } = commandAttempts[attemptIndex];
+          if (attemptIndex > 0) {
+            appendLog(`尝试备用封装设置（${attemptIndex + 1}/${commandAttempts.length}）`);
+          }
+          try {
+            await ffmpeg.deleteFile?.(outputName);
+          } catch (error) {
+            // 忽略删除失败（例如文件不存在）的情况
+          }
+          appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
+          exitCode = await ffmpeg.exec(args);
+          if (exitCode === 0) {
+            try {
+              outputData = await ffmpeg.readFile(outputName);
+            } catch (error) {
+              outputData = null;
+            }
+            if (outputData && outputData.length > 0) {
+              conversionSucceeded = true;
+              break;
+            }
+            if (commandAttempts.length > attemptIndex + 1) {
+              appendLog("输出文件为空，尝试备用封装参数...");
+            }
+          } else if (commandAttempts.length > attemptIndex + 1) {
+            appendLog(`转换失败（返回码 ${exitCode}），尝试备用封装参数...`);
+          }
+        }
+
+        if (conversionSucceeded) {
           results.push({
             name: outputName,
-            data,
+            data: outputData,
           });
         } else {
-          appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
-          if (exitCode === -1) {
-            appendLog("可能由于浏览器内存不足导致失败，请尝试降低视频质量或选择分辨率更低的预设后重试");
+          if (exitCode !== 0) {
+            appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
+            if (exitCode === -1) {
+              appendLog("可能由于浏览器内存不足导致失败，请尝试降低视频质量或选择分辨率更低的预设后重试");
+            }
+          } else {
+            appendLog(`转换失败（${entry.displayName}），输出文件为空，请尝试更换封装或编码设置`);
           }
         }
       } finally {
