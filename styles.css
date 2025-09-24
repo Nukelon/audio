@@ -310,6 +310,15 @@ p {
   box-shadow: none;
   transform: none;
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mode-tab:focus {
+  outline: none;
+}
+
+.mode-tab:focus-visible {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
 }
 
 .mode-tab:not(:disabled):hover {
@@ -328,6 +337,10 @@ p {
 .mode-tab.is-active:not(:disabled):hover {
   box-shadow: 0 16px 32px var(--accent-shadow);
   transform: none;
+}
+
+.mode-tab.is-active:focus-visible {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.45), 0 16px 32px var(--accent-shadow);
 }
 
 .controls {
@@ -369,7 +382,7 @@ button,
   cursor: pointer;
 }
 
-button {
+button:not(.mode-tab) {
   padding: 0.9rem 1.8rem;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
@@ -385,9 +398,13 @@ button:disabled {
   box-shadow: none;
 }
 
-button:not(:disabled):hover {
+button:not(.mode-tab):not(:disabled):hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 25px var(--accent-shadow);
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .is-hidden {
