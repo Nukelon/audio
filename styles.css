@@ -524,6 +524,101 @@ table {
   white-space: nowrap;
 }
 
+
+.analysis-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.analysis-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  line-height: inherit;
+}
+
+.sort-button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -2px 0 0 currentColor;
+}
+
+.sort-button:hover {
+  color: var(--accent-end);
+}
+
+.sort-button::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 0.2rem;
+  border-left: 0.28em solid transparent;
+  border-right: 0.28em solid transparent;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.sort-button[data-sort-state="asc"]::after {
+  border-bottom: 0.34em solid currentColor;
+  border-top: 0;
+  transform: translateY(-0.1em);
+  opacity: 0.85;
+}
+
+.sort-button[data-sort-state="desc"]::after {
+  border-top: 0.34em solid currentColor;
+  border-bottom: 0;
+  transform: translateY(0.1em);
+  opacity: 0.85;
+}
+
+.analysis-action-button {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.analysis-action-button:hover,
+.analysis-action-button:focus-visible {
+  border-color: var(--accent-end);
+  color: var(--accent-end);
+  background: rgba(59, 130, 246, 0.08);
+  outline: none;
+}
+
+.delete-button {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+.delete-button:hover,
+.delete-button:focus-visible {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.65);
+  background: rgba(220, 38, 38, 0.1);
+}
+
 thead {
   background: var(--surface-muted-bg);
 }
@@ -537,6 +632,95 @@ td {
 
 tbody tr:hover {
   background: rgba(148, 163, 184, 0.12);
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal.is-visible {
+  display: flex;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.modal-dialog {
+  position: relative;
+  background: var(--surface-bg);
+  border-radius: 16px;
+  padding: 1.5rem;
+  width: min(560px, calc(100% - 2.5rem));
+  max-height: calc(100% - 4rem);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.35);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.modal-close:hover,
+.modal-close:focus-visible {
+  color: var(--accent-end);
+  background: rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+.modal-content {
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.detail-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 1.25rem;
+  row-gap: 0.5rem;
+  margin: 0;
+}
+
+.detail-list dt {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.detail-list dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 
 .config form {
