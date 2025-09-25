@@ -51,6 +51,7 @@
       </section>
       <section class="controls">
         <div class="file-info" id="file-info">尚未选择文件</div>
+        <button id="analyze-btn" type="button" disabled>分析文件</button>
         <button id="clear-btn" type="button" class="ghost-button" disabled>清空上传</button>
       </section>
       <section class="analysis" id="analysis-section" hidden>
@@ -60,34 +61,14 @@
           <table>
             <thead>
               <tr>
-                <th scope="col">
-                  <button type="button" class="sort-button" data-sort-key="displayName">文件</button>
-                </th>
-                <th scope="col">
-                  <button type="button" class="sort-button" data-sort-key="type">类型</button>
-                </th>
-                <th scope="col" class="analysis-size">
-                  <button type="button" class="sort-button" data-sort-key="size">大小</button>
-                </th>
-                <th scope="col" class="analysis-time">
-                  <button type="button" class="sort-button" data-sort-key="uploadedAt">上传时间</button>
-                </th>
-                <th scope="col">
-                  <button type="button" class="sort-button" data-sort-key="container">容器</button>
-                </th>
-                <th scope="col" class="column-video-only">
-                  <button type="button" class="sort-button" data-sort-key="resolution">分辨率</button>
-                </th>
-                <th scope="col" class="column-video-only">
-                  <button type="button" class="sort-button" data-sort-key="frameRate">帧率</button>
-                </th>
-                <th scope="col">
-                  <button type="button" class="sort-button" data-sort-key="videoCodec">视频编码</button>
-                </th>
-                <th scope="col">
-                  <button type="button" class="sort-button" data-sort-key="audioCodec">音频编码</button>
-                </th>
-                <th scope="col" class="analysis-actions">操作</th>
+                <th scope="col">文件</th>
+                <th scope="col">类型</th>
+                <th scope="col" class="analysis-size">大小</th>
+                <th scope="col">容器</th>
+                <th scope="col" class="column-video-only">分辨率</th>
+                <th scope="col" class="column-video-only">帧率</th>
+                <th scope="col" class="column-video-only">视频编码</th>
+                <th scope="col">音频编码</th>
               </tr>
             </thead>
             <tbody id="analysis-body"></tbody>
@@ -204,24 +185,6 @@
         <pre id="log-output"></pre>
       </section>
     </main>
-    <div class="modal" id="detail-modal" hidden>
-      <div class="modal-backdrop" data-close="true"></div>
-      <div
-        class="modal-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="detail-modal-title"
-        tabindex="-1"
-      >
-        <header class="modal-header">
-          <h3 id="detail-modal-title">文件详情</h3>
-          <button type="button" class="modal-close" id="detail-modal-close" aria-label="关闭详情">
-            &times;
-          </button>
-        </header>
-        <div class="modal-content" id="detail-modal-content"></div>
-      </div>
-    </div>
     <footer>
       <p>所有操作均在浏览器中完成，不会上传到服务器。</p>
     </footer>
