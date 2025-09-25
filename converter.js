@@ -4,7 +4,6 @@ import { unzipSync, zipSync } from "./vendor/fflate.min.js";
 
 const dropZone = document.getElementById("drop-zone");
 let fileInput = document.getElementById("file-input");
-const analyzeBtn = document.getElementById("analyze-btn");
 const convertBtn = document.getElementById("convert-btn");
 const fileInfo = document.getElementById("file-info");
 const statusEl = document.getElementById("status");
@@ -22,6 +21,14 @@ const analysisSection = document.getElementById("analysis-section");
 const analysisBody = document.getElementById("analysis-body");
 const analysisSummary = document.getElementById("analysis-summary");
 const configSection = document.getElementById("config-section");
+const sortButtons = document.querySelectorAll(".sort-button");
+
+const detailModal = document.getElementById("detail-modal");
+const detailModalDialog = detailModal?.querySelector(".modal-dialog");
+const detailModalContent = document.getElementById("detail-modal-content");
+const detailModalClose = document.getElementById("detail-modal-close");
+const detailModalBackdrop = detailModal?.querySelector(".modal-backdrop");
+const detailModalTitle = document.getElementById("detail-modal-title");
 
 const presetSelect = document.getElementById("preset-select");
 const presetContainerGroup = document.getElementById("preset-container-group");
@@ -48,6 +55,22 @@ let ffmpegReady = false;
 const ffmpegLogBuffer = [];
 const MAX_LOG_BUFFER = 5000;
 
+const DEFAULT_SORT_KEY = "uploadedAt";
+
+const createDefaultSortState = () => ({
+  key: DEFAULT_SORT_KEY,
+  direction: "desc",
+  isDefault: true,
+});
+
+let isAnalyzing = false;
+let lastFocusedElement = null;
+let entryIdCounter = 0;
+
+const textCollator = typeof Intl !== "undefined" && Intl.Collator
+  ? new Intl.Collator("zh-Hans", { numeric: true, sensitivity: "base" })
+  : null;
+
 const MODES = {
   AUDIO: "audio",
   VIDEO: "video",
@@ -61,6 +84,7 @@ const createModeState = () => ({
   videoEntriesWithAudio: false,
   results: [],
   config: null,
+  analysisSort: createDefaultSortState(),
 });
 
 const modeStates = {
@@ -122,6 +146,65 @@ const videoExtensions = new Set([
   "wmv",
 ]);
 
+const gatherUniformTypesFromMap = (extensionSet, mapping) => {
+  const values = new Set();
+  extensionSet.forEach((ext) => {
+    const mapped = mapping?.[ext];
+    if (Array.isArray(mapped)) {
+      mapped.filter(Boolean).forEach((item) => values.add(item));
+    }
+  });
+  return values;
+};
+
+const buildIOSUniformTypeList = (baseList, extensionSet, mapping) => {
+  const items = new Set((baseList || []).filter(Boolean));
+  const mappedValues = gatherUniformTypesFromMap(extensionSet, mapping);
+  mappedValues.forEach((value) => items.add(value));
+  return Array.from(items);
+};
+
+const iosAudioUniformTypeMap = {
+  aac: ["public.aac-audio"],
+  ac3: ["com.dolby.ac-3-audio"],
+  aiff: ["public.aiff-audio", "public.aifc-audio"],
+  alac: ["com.apple.coreaudio-format"],
+  amr: ["org.3gpp.adaptive-multi-rate-audio"],
+  ape: ["com.monkeysaudio.ape-audio"],
+  dts: ["com.dts.audio"],
+  flac: ["org.xiph.flac"],
+  m2a: ["public.mpeg-2-audio"],
+  m4a: ["public.mpeg-4-audio"],
+  mka: ["org.matroska.audio"],
+  mp2: ["public.mp2"],
+  mp3: ["public.mp3"],
+  ogg: ["org.xiph.ogg-audio"],
+  opus: ["org.xiph.opus"],
+  wav: ["com.microsoft.waveform-audio"],
+  wma: ["com.microsoft.windows-media-wma"],
+  wv: ["com.wavpack.audio"],
+};
+
+const iosVideoUniformTypeMap = {
+  "3g2": ["public.3gpp2"],
+  "3gp": ["public.3gpp"],
+  avi: ["public.avi", "com.microsoft.avi"],
+  flv: ["com.adobe.flash-video"],
+  m2ts: ["com.sony.m2ts", "public.mpeg-2-transport-stream"],
+  m4v: ["com.apple.m4v-video"],
+  mkv: ["org.matroska.mkv", "org.matroska.video"],
+  mov: ["com.apple.quicktime-movie"],
+  mp4: ["public.mpeg-4"],
+  mpeg: ["public.mpeg"],
+  mpg: ["public.mpeg"],
+  mts: ["com.sony.mts", "public.mpeg-2-transport-stream"],
+  mxf: ["com.sony.mxf"],
+  ts: ["public.mpeg-2-transport-stream"],
+  vob: ["com.apple.vob-video"],
+  webm: ["org.webmproject.webm"],
+  wmv: ["com.microsoft.windows-media-wmv"],
+};
+
 const audioMimeTypes = [
   "audio/*",
   "audio/aac",
@@ -151,19 +234,30 @@ const isIOSDevice =
   (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
-const iosAudioUniformTypes = [
-  "public.audio",
-  "public.mpeg-4-audio",
-  "org.matroska.audio",
-];
-const iosVideoUniformTypes = [
-  "public.movie",
-  "public.video",
-  "org.matroska.mkv",
-  "org.matroska.video",
-  "org.webmproject.webm",
-  "com.apple.quicktime-movie",
-];
+const iosAudioUniformTypes = buildIOSUniformTypeList(
+  [
+    "public.audio",
+    "public.mpeg-4-audio",
+    "org.matroska.audio",
+    "com.apple.coreaudio-format",
+  ],
+  audioExtensions,
+  iosAudioUniformTypeMap,
+);
+
+const iosVideoUniformTypes = buildIOSUniformTypeList(
+  [
+    "public.movie",
+    "public.video",
+    "org.matroska.mkv",
+    "org.matroska.video",
+    "org.webmproject.webm",
+    "com.apple.quicktime-movie",
+  ],
+  videoExtensions,
+  iosVideoUniformTypeMap,
+);
+
 const iosZipUniformTypes = ["com.pkware.zip-archive", "public.zip-archive"];
 
 const baseAudioAcceptList = [
@@ -418,6 +512,85 @@ const formatBytes = (bytes) => {
   return `${(bytes / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 2)} ${units[exponent]}`;
 };
 
+const formatDateTime = (timestamp) => {
+  if (!Number.isFinite(timestamp)) return "未知";
+  try {
+    const formatter = typeof Intl !== "undefined" && Intl.DateTimeFormat
+      ? new Intl.DateTimeFormat("zh-CN", {
+          dateStyle: "medium",
+          timeStyle: "medium",
+        })
+      : null;
+    const date = new Date(timestamp);
+    if (formatter) {
+      return formatter.format(date);
+    }
+    return date.toLocaleString();
+  } catch (error) {
+    return new Date(timestamp).toLocaleString();
+  }
+};
+
+const formatFrameRate = (value) => {
+  if (!Number.isFinite(value) || value <= 0) return "未知";
+  return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(2)} fps`;
+};
+
+const formatDuration = (seconds) => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "未知";
+  const totalMilliseconds = Math.round(seconds * 1000);
+  const totalSeconds = Math.floor(totalMilliseconds / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const fractional = totalMilliseconds % 1000;
+  const parts = [];
+  if (hours) {
+    parts.push(String(hours).padStart(2, "0"));
+    parts.push(String(minutes).padStart(2, "0"));
+  } else {
+    parts.push(String(minutes));
+  }
+  parts.push(String(secs).padStart(2, "0"));
+  let formatted = parts.join(":");
+  if (fractional) {
+    const fractionalStr = String(Math.floor(fractional / 10)).padStart(2, "0");
+    formatted = `${formatted}.${fractionalStr}`;
+  }
+  return formatted;
+};
+
+const formatBitrate = (bps) => {
+  if (!Number.isFinite(bps) || bps <= 0) return "未知";
+  if (bps >= 1_000_000) {
+    return `${(bps / 1_000_000).toFixed(2)} Mbps`;
+  }
+  if (bps >= 1_000) {
+    return `${(bps / 1_000).toFixed(0)} kbps`;
+  }
+  return `${Math.round(bps)} bps`;
+};
+
+const formatMetadataDate = (value) => {
+  if (!value) return "";
+  const timestamp = Date.parse(value);
+  if (Number.isFinite(timestamp)) {
+    return formatDateTime(timestamp);
+  }
+  return value;
+};
+
+const normalizeMetadataValue = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed || /^n\/?a$/i.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+};
+
 const sanitizeName = (name, fallback = "file") => {
   if (!name) return fallback;
   const normalized = typeof name.normalize === "function" ? name.normalize("NFC") : name;
@@ -449,6 +622,31 @@ const shortenLabel = (label) => {
 const joinLabel = (...parts) => parts.filter(Boolean).join("/").replace(/\\/g, "/");
 
 const isZipFile = (name = "") => /\.zip$/i.test(name);
+
+const ensureTimestamp = (value) => (Number.isFinite(value) ? value : Date.now());
+
+const createUploadTracker = (base = Date.now()) => {
+  let counter = 0;
+  return {
+    next() {
+      const value = base + counter;
+      counter += 1;
+      return Number.isFinite(value) ? value : Date.now();
+    },
+  };
+};
+
+const getFileTimestamp = (file) => {
+  if (!file) return Date.now();
+  if (typeof file.lastModified === "number" && Number.isFinite(file.lastModified)) {
+    return file.lastModified;
+  }
+  const lastModifiedDate = file.lastModifiedDate;
+  if (lastModifiedDate instanceof Date && Number.isFinite(lastModifiedDate.valueOf())) {
+    return lastModifiedDate.valueOf();
+  }
+  return Date.now();
+};
 
 const isAudioFile = (file) => {
   if (!file) return false;
@@ -553,8 +751,7 @@ const anyUploadsExist = () =>
     (modeState) => modeState.selectedFiles.length || modeState.mediaEntries.length || modeState.results.length,
   );
 
-const updateAnalyzeAndClearState = () => {
-  analyzeBtn.disabled = state.selectedFiles.length === 0;
+const updateClearButtonState = () => {
   clearBtn.disabled = !anyUploadsExist();
 };
 
@@ -648,6 +845,7 @@ const rebuildFileInputElement = (acceptValue) => {
   newInput.type = "file";
   newInput.multiple = fileInput.multiple;
   newInput.id = fileInput.id;
+  newInput.disabled = fileInput.disabled;
   if (fileInput.name) {
     newInput.name = fileInput.name;
   }
@@ -691,7 +889,127 @@ const loadFFmpeg = async () => {
   }
 };
 
+const getSortableValue = (entry, key) => {
+  if (!entry) return null;
+  switch (key) {
+    case "displayName":
+      return entry.displayName || "";
+    case "type":
+      return entry.type || "";
+    case "size":
+      return entry.file?.size ?? null;
+    case "uploadedAt":
+      return entry.uploadedAt ?? null;
+    case "createdAt":
+      return entry.createdAt ?? null;
+    case "container":
+      return entry.analysis?.container || null;
+    case "resolution":
+      if (entry.analysis?.width && entry.analysis?.height) {
+        return entry.analysis.width * 10000 + entry.analysis.height;
+      }
+      return null;
+    case "frameRate":
+      return Number.isFinite(entry.analysis?.frameRate) ? entry.analysis.frameRate : null;
+    case "videoCodec":
+      return entry.type === "video"
+        ? entry.analysis?.videoCodec || (entry.analysis?.hasVideo ? "未知" : null)
+        : null;
+    case "audioCodec":
+      if (entry.analysis?.audioCodec) {
+        return entry.analysis.audioCodec;
+      }
+      if (entry.analysis?.hasAudio === false) {
+        return null;
+      }
+      return entry.analysis?.hasAudio ? "未知" : null;
+    default:
+      return entry.originalIndex ?? null;
+  }
+};
+
+const compareEntriesForSort = (a, b, sortState) => {
+  if (!sortState) return 0;
+  const { key, direction } = sortState;
+  const multiplier = direction === "desc" ? -1 : 1;
+  const aValue = getSortableValue(a, key);
+  const bValue = getSortableValue(b, key);
+  const aIsNull = aValue === null || typeof aValue === "undefined";
+  const bIsNull = bValue === null || typeof bValue === "undefined";
+  if (aIsNull && !bIsNull) return 1;
+  if (!aIsNull && bIsNull) return -1;
+  if (!aIsNull && !bIsNull) {
+    if (typeof aValue === "number" && typeof bValue === "number") {
+      const diff = aValue - bValue;
+      if (diff !== 0) {
+        return diff * multiplier;
+      }
+    } else {
+      const aText = String(aValue);
+      const bText = String(bValue);
+      const diff = textCollator ? textCollator.compare(aText, bText) : aText.localeCompare(bText);
+      if (diff !== 0) {
+        return diff * multiplier;
+      }
+    }
+  }
+  return (a.originalIndex ?? 0) - (b.originalIndex ?? 0);
+};
+
+const sortEntriesForDisplay = (entries) => {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return [];
+  }
+  const sortState = state.analysisSort || createDefaultSortState();
+  const sorted = Array.from(entries);
+  sorted.sort((a, b) => compareEntriesForSort(a, b, sortState));
+  return sorted;
+};
+
+const updateSortIndicators = () => {
+  if (!sortButtons || sortButtons.length === 0) return;
+  const sortState = state.analysisSort || createDefaultSortState();
+  sortButtons.forEach((button) => {
+    if (!button) return;
+    const key = button.dataset.sortKey;
+    const stateValue = sortState.key === key ? sortState.direction : "none";
+    button.dataset.sortState = stateValue;
+  });
+};
+
+const applySortForKey = (key) => {
+  if (!key) return;
+  const current = state.analysisSort || createDefaultSortState();
+  let nextState;
+  if (current.key === key) {
+    if (current.isDefault) {
+      nextState = { key, direction: "asc", isDefault: false };
+    } else if (current.direction === "asc") {
+      nextState = { key, direction: "desc", isDefault: false };
+    } else if (current.direction === "desc") {
+      nextState = createDefaultSortState();
+    }
+  } else {
+    nextState = { key, direction: "asc", isDefault: false };
+  }
+  if (!nextState) {
+    nextState = createDefaultSortState();
+  }
+  state.analysisSort = nextState;
+  if (state.mediaEntries.length) {
+    buildAnalysisTable(state.mediaEntries);
+  } else {
+    updateSortIndicators();
+  }
+};
+
 const selectFiles = (files = []) => {
+  closeDetailModal();
+  if (isAnalyzing) {
+    setStatus("正在分析当前文件，请稍候再上传新文件");
+    return;
+  }
+
   const validFiles = [];
   let rejectedCount = 0;
   for (const file of Array.from(files || [])) {
@@ -714,6 +1032,8 @@ const selectFiles = (files = []) => {
   state.videoEntriesWithAudio = false;
   state.results = [];
   state.config = null;
+  state.analysisSort = createDefaultSortState();
+
   if (validFiles.length === 0) {
     try {
       fileInput.value = "";
@@ -733,7 +1053,9 @@ const selectFiles = (files = []) => {
   convertBtn.disabled = true;
   clearResults(state);
   updateFileInfo();
-  updateAnalyzeAndClearState();
+  updateClearButtonState();
+  updateSortIndicators();
+
   if (state.selectedFiles.length === 0) {
     if (rejectedCount > 0) {
       const expectedLabel = currentMode === MODES.AUDIO ? "音频" : "视频";
@@ -743,24 +1065,35 @@ const selectFiles = (files = []) => {
     }
     return;
   }
+
   if (rejectedCount > 0) {
     const expectedLabel = currentMode === MODES.AUDIO ? "音频" : "视频";
-    setStatus(`已忽略 ${rejectedCount} 个非${expectedLabel}文件，其他文件可继续分析`);
+    setStatus(`已忽略 ${rejectedCount} 个非${expectedLabel}文件，正在分析剩余文件`);
   } else {
-    setStatus("准备就绪，点击分析文件以继续");
+    setStatus("正在准备分析文件...");
   }
+  analyzeSelectedFiles();
 };
 
 const gatherMediaEntries = async (files, mode) => {
   const entries = [];
+  const uploadTracker = createUploadTracker();
   for (const file of files) {
     const label = file.webkitRelativePath || file.name;
-    await collectFromEntry(file, label, entries, mode);
+    const baseTimestamp = ensureTimestamp(getFileTimestamp(file));
+    await collectFromEntry(file, label, entries, mode, baseTimestamp, uploadTracker);
   }
   return entries;
 };
 
-const collectFromEntry = async (file, label, entries, mode) => {
+const collectFromEntry = async (
+  file,
+  label,
+  entries,
+  mode,
+  baseTimestamp,
+  uploadTracker,
+) => {
   if (!file) return;
   if (isZipFile(file.name)) {
     appendLog(`开始解压缩文件：${label}`);
@@ -781,16 +1114,34 @@ const collectFromEntry = async (file, label, entries, mode) => {
       const data = zipEntries[entryName];
       const fullLabel = joinLabel(label, entryName);
       if (isZipFile(entryName)) {
-        const nestedFile = new File([data], entryName, { type: "application/zip" });
-        await collectFromEntry(nestedFile, fullLabel, entries, mode);
+        const nestedFile = new File([data], entryName, {
+          type: "application/zip",
+          lastModified: ensureTimestamp(baseTimestamp),
+        });
+        await collectFromEntry(
+          nestedFile,
+          fullLabel,
+          entries,
+          mode,
+          baseTimestamp,
+          uploadTracker,
+        );
       } else {
-        const virtualFile = new File([data], entryName);
+        const virtualFile = new File([data], entryName, {
+          lastModified: ensureTimestamp(baseTimestamp),
+        });
         if (shouldIncludeFileForMode(virtualFile, mode)) {
+          const originalIndex = entries.length;
+          const uploadedAt = uploadTracker?.next?.() ?? Date.now();
           entries.push({
+            id: entryIdCounter += 1,
             file: virtualFile,
             displayName: fullLabel,
             ext: getExtension(entryName),
             type: mode === MODES.VIDEO ? "video" : "audio",
+            uploadedAt,
+            createdAt: ensureTimestamp(baseTimestamp),
+            originalIndex,
           });
         } else if (isVideoFile(virtualFile) || isAudioFile(virtualFile)) {
           const category = mode === MODES.VIDEO ? "视频" : "音频";
@@ -801,11 +1152,17 @@ const collectFromEntry = async (file, label, entries, mode) => {
       }
     }
   } else if (shouldIncludeFileForMode(file, mode)) {
+    const originalIndex = entries.length;
+    const uploadedAt = uploadTracker?.next?.() ?? Date.now();
     entries.push({
+      id: entryIdCounter += 1,
       file,
       displayName: label,
       ext: getExtension(file.name || file.webkitRelativePath || ""),
       type: mode === MODES.VIDEO ? "video" : "audio",
+      uploadedAt,
+      createdAt: ensureTimestamp(baseTimestamp),
+      originalIndex,
     });
   } else {
     const category = mode === MODES.VIDEO ? "视频" : "音频";
@@ -822,6 +1179,52 @@ const parseProbeLog = (log = "") => {
   const videoMatches = [...log.matchAll(/Video:\s*([^,\s]+)/gi)].map((m) => m[1].toLowerCase());
   const resolutionMatch = log.match(/Video:[^\n]*?,\s*(\d{2,5})x(\d{2,5})/i);
   const frameRateMatch = log.match(/\s([\d.]+)\s*fps/);
+  const durationMatch = log.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+  const bitrateMatch = log.match(/bitrate:\s*([\d.]+)\s*kb\/?s/i);
+
+  let durationSeconds = null;
+  if (durationMatch) {
+    const hours = Number(durationMatch[1]) || 0;
+    const minutes = Number(durationMatch[2]) || 0;
+    const seconds = Number(durationMatch[3]) || 0;
+    durationSeconds = hours * 3600 + minutes * 60 + seconds;
+  }
+
+  const bitrateBps = bitrateMatch ? Number(bitrateMatch[1]) * 1000 : null;
+
+  const metadata = {};
+  const lines = log.split(/\r?\n/);
+  let inMetadata = false;
+  for (const rawLine of lines) {
+    const line = rawLine || "";
+    if (/^\s*Metadata:/i.test(line)) {
+      inMetadata = true;
+      continue;
+    }
+    if (!inMetadata) {
+      continue;
+    }
+    if (/^\s*(?:Stream\s+#|Input\s+#|Output\s+#|Duration:|frame=|Press\s+\[q\])/i.test(line)) {
+      inMetadata = false;
+      continue;
+    }
+    if (!line.trim()) {
+      continue;
+    }
+    const metaMatch = line.match(/^\s*([^:]+?)\s*:\s*(.+)$/);
+    if (metaMatch) {
+      const key = metaMatch[1].trim().toLowerCase().replace(/\s+/g, "_");
+      const value = metaMatch[2].trim();
+      if (key && value && typeof metadata[key] === "undefined") {
+        metadata[key] = value;
+      }
+      continue;
+    }
+    if (!/^\s/.test(line)) {
+      inMetadata = false;
+    }
+  }
+
   return {
     audioCodec: audioMatches.length ? audioMatches[0] : null,
     videoCodec: videoMatches.length ? videoMatches[0] : null,
@@ -830,6 +1233,9 @@ const parseProbeLog = (log = "") => {
     width: resolutionMatch ? Number(resolutionMatch[1]) : null,
     height: resolutionMatch ? Number(resolutionMatch[2]) : null,
     frameRate: frameRateMatch ? Number(frameRateMatch[1]) : null,
+    duration: durationSeconds,
+    bitrate: Number.isFinite(bitrateBps) && bitrateBps > 0 ? bitrateBps : null,
+    metadata,
   };
 };
 
@@ -864,17 +1270,23 @@ const analyzeEntry = async (entry, index) => {
     width: info.width,
     height: info.height,
     frameRate: info.frameRate,
+    duration: info.duration,
+    bitrate: info.bitrate,
+    metadata: info.metadata || {},
   };
 };
 
 const analyzeSelectedFiles = async () => {
-  if (!state.selectedFiles.length) return;
-  analyzeBtn.disabled = true;
+  if (!state.selectedFiles.length || isAnalyzing) return;
+  isAnalyzing = true;
   convertBtn.disabled = true;
   clearLog();
   clearResults(state);
   resetProgress();
   setStatus("正在初始化...");
+  if (fileInput) {
+    fileInput.disabled = true;
+  }
 
   try {
     await loadFFmpeg();
@@ -885,9 +1297,14 @@ const analyzeSelectedFiles = async () => {
       setStatus(`未找到可用的${currentMode === MODES.VIDEO ? "视频" : "音频"}文件`);
       analysisSection.hidden = true;
       configSection.hidden = true;
+      state.mediaEntries = [];
+      state.hasVideoEntries = false;
+      state.hasAudioEntries = false;
+      state.videoEntriesWithAudio = false;
       state.selectedFiles = [];
       updateFileInfo();
-      updateAnalyzeAndClearState();
+      updateClearButtonState();
+      updateSortIndicators();
       updateFileInputForMode({ resetValue: true });
       return;
     }
@@ -908,10 +1325,10 @@ const analyzeSelectedFiles = async () => {
 
     state.selectedFiles = [];
     updateFileInfo();
-    updateAnalyzeAndClearState();
+    updateClearButtonState();
     updateFileInputForMode({ resetValue: true });
 
-    buildAnalysisTable(entries);
+    buildAnalysisTable(state.mediaEntries);
     prepareConfiguration({ restoreConfig: false });
     state.config = captureConfigState();
     setStatus("分析完成，可调整转换设置");
@@ -921,7 +1338,11 @@ const analyzeSelectedFiles = async () => {
     appendLog(`错误：${error.message || error}`);
     setStatus("分析失败，请重试");
   } finally {
-    analyzeBtn.disabled = state.selectedFiles.length === 0;
+    isAnalyzing = false;
+    if (fileInput) {
+      fileInput.disabled = false;
+    }
+    updateSortIndicators();
   }
 };
 
@@ -930,6 +1351,7 @@ const buildAnalysisTable = (entries) => {
   if (!entries.length) {
     analysisSummary.textContent = "";
     analysisSection.hidden = true;
+    updateSortIndicators();
     return;
   }
 
@@ -939,7 +1361,9 @@ const buildAnalysisTable = (entries) => {
   let videoCount = 0;
   let totalSize = 0;
 
-  for (const entry of entries) {
+  const sortedEntries = sortEntriesForDisplay(entries);
+
+  for (const entry of sortedEntries) {
     const tr = document.createElement("tr");
     const labelCell = document.createElement("td");
     labelCell.textContent = entry.displayName;
@@ -956,6 +1380,21 @@ const buildAnalysisTable = (entries) => {
     sizeCell.classList.add("analysis-size");
     tr.appendChild(sizeCell);
     totalSize += size;
+
+    const uploadTimeCell = document.createElement("td");
+    uploadTimeCell.classList.add("analysis-time");
+    const uploadLabel = document.createElement("div");
+    uploadLabel.classList.add("time-primary");
+    uploadLabel.textContent = `上传：${formatDateTime(entry.uploadedAt)}`;
+    uploadTimeCell.appendChild(uploadLabel);
+    const creationText = formatDateTime(entry.createdAt);
+    if (creationText && creationText !== "未知") {
+      const creationLabel = document.createElement("div");
+      creationLabel.classList.add("time-secondary");
+      creationLabel.textContent = `创建：${creationText}`;
+      uploadTimeCell.appendChild(creationLabel);
+    }
+    tr.appendChild(uploadTimeCell);
 
     const containerCell = document.createElement("td");
     containerCell.textContent = entry.analysis?.container ? `.${entry.analysis.container}` : "未知";
@@ -989,13 +1428,29 @@ const buildAnalysisTable = (entries) => {
     tr.appendChild(frameRateCell);
 
     const videoCodecCell = document.createElement("td");
-    videoCodecCell.classList.add("column-video-only");
     videoCodecCell.textContent = entry.analysis?.videoCodec || (entry.type === "video" ? "未检测到" : "-");
     tr.appendChild(videoCodecCell);
 
     const audioCodecCell = document.createElement("td");
-    audioCodecCell.textContent = entry.analysis?.audioCodec || (entry.analysis?.hasAudio ? "未知" : "-");
+    if (entry.analysis?.audioCodec) {
+      audioCodecCell.textContent = entry.analysis.audioCodec;
+    } else if (entry.analysis?.hasAudio) {
+      audioCodecCell.textContent = "未知";
+    } else {
+      audioCodecCell.textContent = "未检测到";
+    }
     tr.appendChild(audioCodecCell);
+
+    const actionsCell = document.createElement("td");
+    actionsCell.classList.add("analysis-actions");
+    const detailButton = document.createElement("button");
+    detailButton.type = "button";
+    detailButton.classList.add("detail-button");
+    detailButton.textContent = "详情";
+    detailButton.dataset.entryId = String(entry.id);
+    detailButton.setAttribute("aria-label", `查看 ${entry.displayName} 的详细信息`);
+    actionsCell.appendChild(detailButton);
+    tr.appendChild(actionsCell);
 
     analysisBody.appendChild(tr);
 
@@ -1010,6 +1465,134 @@ const buildAnalysisTable = (entries) => {
   analysisSummary.textContent = summaryParts.length ? `共检测到 ${summaryParts.join("、")}` : "";
 
   analysisSection.hidden = false;
+  updateSortIndicators();
+};
+
+const closeDetailModal = () => {
+  if (!detailModal) return;
+  detailModal.classList.remove("is-visible");
+  detailModal.setAttribute("hidden", "");
+  if (detailModalContent) {
+    detailModalContent.innerHTML = "";
+  }
+  if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
+    try {
+      lastFocusedElement.focus();
+    } catch (error) {
+      // ignore focus restoration errors
+    }
+  }
+  lastFocusedElement = null;
+};
+
+const openDetailModal = (entry) => {
+  if (!entry || !detailModal || !detailModalContent || !detailModalDialog) return;
+  lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  detailModalContent.innerHTML = "";
+  detailModal.removeAttribute("hidden");
+  detailModal.classList.add("is-visible");
+
+  if (detailModalTitle) {
+    detailModalTitle.textContent = entry.displayName || "文件详情";
+  }
+
+  const detailList = document.createElement("dl");
+  detailList.classList.add("detail-list");
+
+  const appendRow = (label, value, { skipIfEmpty = false } = {}) => {
+    const normalized = value !== undefined && value !== null ? String(value) : "";
+    if (skipIfEmpty && !normalized) {
+      return;
+    }
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = normalized || "未知";
+    detailList.appendChild(dt);
+    detailList.appendChild(dd);
+  };
+
+  appendRow("来源路径", entry.displayName || entry.file?.name || "");
+  if (entry.file?.name && entry.file.name !== entry.displayName) {
+    appendRow("原始文件名", entry.file.name, { skipIfEmpty: true });
+  }
+  appendRow("媒体类型", entry.type === "video" ? "视频" : "音频");
+  appendRow("上传时间", formatDateTime(entry.uploadedAt));
+  appendRow("文件创建时间", formatDateTime(entry.createdAt));
+  appendRow("文件大小", formatBytes(entry.file?.size ?? 0));
+  appendRow("MIME 类型", entry.file?.type || "", { skipIfEmpty: true });
+  appendRow(
+    "容器格式",
+    entry.analysis?.container ? `.${entry.analysis.container}` : entry.ext ? `.${entry.ext}` : ""
+  );
+
+  const metadata = entry.analysis?.metadata || {};
+  const pickMetadataValue = (...keys) => {
+    for (const key of keys) {
+      const value = normalizeMetadataValue(metadata[key]);
+      if (value) {
+        return value;
+      }
+    }
+    return "";
+  };
+  if (metadata.creation_time) {
+    appendRow("媒体创建时间", formatMetadataDate(metadata.creation_time), { skipIfEmpty: true });
+  }
+  appendRow("媒体时长", formatDuration(entry.analysis?.duration));
+  appendRow("整体码率", formatBitrate(entry.analysis?.bitrate));
+  appendRow("专辑", pickMetadataValue("album", "album_artist", "albumartist", "alb"), {
+    skipIfEmpty: true,
+  });
+  appendRow(
+    "艺术家",
+    pickMetadataValue(
+      "artist",
+      "performer",
+      "author",
+      "album_artist",
+      "albumartist",
+      "composer",
+    ),
+    { skipIfEmpty: true },
+  );
+
+  if (entry.type === "video" || entry.analysis?.hasVideo) {
+    const resolution =
+      entry.analysis?.width && entry.analysis?.height
+        ? `${entry.analysis.width}×${entry.analysis.height}`
+        : "";
+    appendRow("视频分辨率", resolution);
+    appendRow("视频帧率", entry.analysis?.frameRate ? formatFrameRate(entry.analysis.frameRate) : "");
+  }
+
+  const videoCodecValue =
+    entry.type === "video"
+      ? entry.analysis?.videoCodec || "未检测到"
+      : entry.analysis?.hasVideo
+      ? entry.analysis?.videoCodec || "未知"
+      : "不适用";
+  appendRow("视频编码", videoCodecValue);
+
+  const audioCodecValue = entry.analysis?.audioCodec
+    ? entry.analysis.audioCodec
+    : entry.analysis?.hasAudio
+    ? "未知"
+    : "未检测到";
+  appendRow("音频编码", audioCodecValue);
+
+  appendRow("包含音频轨道", entry.analysis?.hasAudio ? "是" : "否");
+  appendRow("包含视频轨道", entry.analysis?.hasVideo ? "是" : "否");
+
+  detailModalContent.appendChild(detailList);
+
+  setTimeout(() => {
+    try {
+      detailModalDialog.focus({ preventScroll: true });
+    } catch (error) {
+      // ignore focus errors
+    }
+  }, 0);
 };
 
 const populateSelect = (select, options, { includeCopyForAny = false } = {}) => {
@@ -1554,7 +2137,7 @@ const renderResults = (modeState = state) => {
     if (!modeState || !modeState.mediaEntries.length) {
       configSection.hidden = true;
     }
-    updateAnalyzeAndClearState();
+    updateClearButtonState();
     return;
   }
 
@@ -1591,7 +2174,7 @@ const renderResults = (modeState = state) => {
   };
 
   resultSection.hidden = false;
-  updateAnalyzeAndClearState();
+  updateClearButtonState();
 };
 
 const switchMode = (mode) => {
@@ -1599,6 +2182,7 @@ const switchMode = (mode) => {
   if (!configSection.hidden && state.mediaEntries.length) {
     state.config = captureConfigState();
   }
+  closeDetailModal();
   currentMode = mode;
   state = modeStates[currentMode];
   updateModeTabs();
@@ -1619,16 +2203,18 @@ const switchMode = (mode) => {
     convertBtn.disabled = true;
     if (conversionProgress.total === 0) {
       const statusMessage = state.selectedFiles.length
-        ? "准备就绪，点击分析文件以继续"
+        ? "正在准备分析，请稍候"
         : "等待操作";
       setStatus(statusMessage);
     }
   }
   renderResults(state);
-  updateAnalyzeAndClearState();
+  updateClearButtonState();
+  updateSortIndicators();
 };
 
 const clearAllUploads = async () => {
+  closeDetailModal();
   const activeMode = currentMode;
   resetModeState(MODES.AUDIO);
   resetModeState(MODES.VIDEO);
@@ -1643,7 +2229,8 @@ const clearAllUploads = async () => {
   convertBtn.disabled = true;
   renderResults(state);
   updateFileInfo();
-  updateAnalyzeAndClearState();
+  updateClearButtonState();
+  updateSortIndicators();
   setStatus("等待操作");
   if (ffmpegReady) {
     try {
@@ -1685,6 +2272,45 @@ ffmpeg.on("progress", ({ progress }) => {
     }
   }
   setStatus(message);
+});
+
+if (analysisBody) {
+  analysisBody.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target.closest(".detail-button") : null;
+    if (!target) return;
+    const entryId = target.dataset.entryId;
+    if (!entryId) return;
+    const entry = state.mediaEntries.find((item) => String(item.id) === entryId);
+    if (entry) {
+      openDetailModal(entry);
+    }
+  });
+}
+
+detailModalClose?.addEventListener("click", () => {
+  closeDetailModal();
+});
+
+detailModalBackdrop?.addEventListener("click", (event) => {
+  if (event.target === detailModalBackdrop) {
+    closeDetailModal();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && detailModal?.classList.contains("is-visible")) {
+    event.preventDefault();
+    closeDetailModal();
+  }
+});
+
+sortButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const sortKey = button.dataset.sortKey;
+    if (sortKey) {
+      applySortForKey(sortKey);
+    }
+  });
 });
 
 presetSelect.addEventListener("change", () => {
@@ -1743,11 +2369,6 @@ clearBtn?.addEventListener("click", () => {
   clearAllUploads();
 });
 
-analyzeBtn.addEventListener("click", () => {
-  if (!state.selectedFiles.length) return;
-  analyzeSelectedFiles();
-});
-
 convertBtn.addEventListener("click", () => {
   if (!state.mediaEntries.length) return;
   convertEntries();
@@ -1756,6 +2377,7 @@ convertBtn.addEventListener("click", () => {
 registerFileInputListeners(fileInput);
 
 dropZone.addEventListener("dragover", (event) => {
+  if (isAnalyzing) return;
   event.preventDefault();
   dropZone.classList.add("dragover");
 });
@@ -1767,6 +2389,10 @@ dropZone.addEventListener("dragleave", () => {
 dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
   dropZone.classList.remove("dragover");
+  if (isAnalyzing) {
+    setStatus("正在分析当前文件，请稍候再上传新文件");
+    return;
+  }
   const files = event.dataTransfer?.files;
   if (files && files.length) {
     try {
@@ -1788,7 +2414,8 @@ window.addEventListener("beforeunload", () => {
 updateModeTabs();
 updateFileInputForMode();
 updateFileInfo();
-updateAnalyzeAndClearState();
+updateClearButtonState();
+updateSortIndicators();
 renderResults(state);
 
 analysisSection.hidden = true;
