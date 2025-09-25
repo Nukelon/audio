@@ -43,7 +43,7 @@ const audioQualitySelect = document.getElementById("audio-quality-select");
 const audioCustomGroup = document.getElementById("audio-custom-group");
 const audioCustomBitrate = document.getElementById("audio-custom-bitrate");
 
-const ffmpeg = new FFmpeg();
+let ffmpeg = null;
 let ffmpegReady = false;
 const ffmpegLogBuffer = [];
 const MAX_LOG_BUFFER = 5000;
@@ -79,6 +79,34 @@ const conversionProgress = {
   currentIndex: 0,
   startTime: null,
   label: "",
+};
+
+const getSharedArrayBufferIssueMessage = () => {
+  if (typeof SharedArrayBuffer !== "undefined" && window.crossOriginIsolated) {
+    return null;
+  }
+  if (!window.isSecureContext) {
+    return "当前页面未在安全环境中打开，无法启用多线程转换。请通过 HTTPS 或本地部署访问后重试。";
+  }
+  if (!("serviceWorker" in navigator)) {
+    return "当前浏览器不支持 Service Worker，无法启用多线程转换。请更新系统或更换兼容的浏览器。";
+  }
+  if (!window.crossOriginIsolated) {
+    return "正在尝试启用跨源隔离以加载转换引擎，如页面未自动刷新，请手动刷新或检查 Safari 的“阻止跨站跟踪”设置后重试。";
+  }
+  return "当前环境未提供 SharedArrayBuffer 支持，无法加载多线程转换引擎。";
+};
+
+const ensureSharedArrayBufferSupport = () => {
+  const message = getSharedArrayBufferIssueMessage();
+  if (!message) {
+    return true;
+  }
+  setStatus(message);
+  appendLog(message);
+  const error = new Error(message);
+  error.name = "SharedArrayBufferUnavailableError";
+  throw error;
 };
 
 const audioExtensions = new Set([
@@ -585,8 +613,50 @@ const appendLog = (message = "") => {
   logOutput.scrollTop = logOutput.scrollHeight;
 };
 
+const registerFFmpegEventListeners = (instance) => {
+  instance.on("log", ({ type, message }) => {
+    if (!message) return;
+    ffmpegLogBuffer.push({ type: type ?? "log", message });
+    if (ffmpegLogBuffer.length > MAX_LOG_BUFFER) {
+      ffmpegLogBuffer.splice(0, ffmpegLogBuffer.length - MAX_LOG_BUFFER);
+    }
+    appendLog(`[${type ?? "log"}] ${message}`);
+  });
+
+  instance.on("progress", ({ progress }) => {
+    if (!Number.isFinite(progress) || conversionProgress.total === 0) return;
+    const normalized = Math.max(0, Math.min(1, progress));
+    const percent = normalized * 100;
+    const overall = conversionProgress.total
+      ? ((conversionProgress.currentIndex + normalized) / conversionProgress.total) * 100
+      : percent;
+    updateProgress(overall);
+    let message = `转换中 ${conversionProgress.currentIndex + 1}/${conversionProgress.total}`;
+    if (conversionProgress.label) {
+      message += `：${conversionProgress.label}`;
+    }
+    message += ` ${percent.toFixed(0)}%`;
+    if (conversionProgress.startTime !== null) {
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const elapsedSeconds = (now - conversionProgress.startTime) / 1000;
+      if (Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0) {
+        message += `（耗时 ${elapsedSeconds.toFixed(1)}s）`;
+      }
+    }
+    setStatus(message);
+  });
+};
+
+const ensureFFmpegInstance = () => {
+  if (!ffmpeg) {
+    ffmpeg = new FFmpeg();
+    registerFFmpegEventListeners(ffmpeg);
+  }
+  return ffmpeg;
+};
+
 const cleanupTempFiles = async () => {
-  if (!ffmpegReady || trackedTempFiles.size === 0) return;
+  if (!ffmpegReady || !ffmpeg || trackedTempFiles.size === 0) return;
   const pending = Array.from(trackedTempFiles);
   for (const name of pending) {
     try {
@@ -675,9 +745,11 @@ const releaseTempFile = (name) => {
 
 const loadFFmpeg = async () => {
   if (ffmpegReady) return;
+  ensureSharedArrayBufferSupport();
+  const instance = ensureFFmpegInstance();
   setStatus("正在加载多线程 FFmpeg 核心...");
   try {
-    await ffmpeg.load({
+    await instance.load({
       coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
       wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
       workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
@@ -1796,4 +1868,5 @@ configSection.hidden = true;
 updateAudioQualityVisibility();
 updateVideoQualityVisibility();
 
-setStatus("等待操作");
+const sharedArrayBufferMessage = getSharedArrayBufferIssueMessage();
+setStatus(sharedArrayBufferMessage ?? "等待操作");
