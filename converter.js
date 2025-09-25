@@ -43,7 +43,7 @@ const audioQualitySelect = document.getElementById("audio-quality-select");
 const audioCustomGroup = document.getElementById("audio-custom-group");
 const audioCustomBitrate = document.getElementById("audio-custom-bitrate");
 
-const ffmpeg = new FFmpeg();
+let ffmpeg = null;
 let ffmpegReady = false;
 const ffmpegLogBuffer = [];
 const MAX_LOG_BUFFER = 5000;
@@ -79,6 +79,25 @@ const conversionProgress = {
   currentIndex: 0,
   startTime: null,
   label: "",
+};
+
+let lastSharedArrayBufferWarning = null;
+let waitingForSharedArrayBuffer = false;
+
+const getSharedArrayBufferIssueMessage = () => {
+  if (typeof SharedArrayBuffer !== "undefined" && window.crossOriginIsolated) {
+    return null;
+  }
+  if (!window.isSecureContext) {
+    return "当前页面未在安全环境中打开，无法启用多线程转换。请通过 HTTPS 或本地部署访问后重试。";
+  }
+  if (!("serviceWorker" in navigator)) {
+    return "当前浏览器不支持 Service Worker，无法启用多线程转换。请更新系统或更换兼容的浏览器。";
+  }
+  if (!window.crossOriginIsolated) {
+    return "正在尝试启用跨源隔离以加载转换引擎，如页面未自动刷新，请手动刷新或检查 Safari 的“阻止跨站跟踪”设置后重试。";
+  }
+  return "当前环境未提供 SharedArrayBuffer 支持，无法加载多线程转换引擎。";
 };
 
 const audioExtensions = new Set([
@@ -585,8 +604,158 @@ const appendLog = (message = "") => {
   logOutput.scrollTop = logOutput.scrollHeight;
 };
 
+const hasSharedArrayBufferSupport = () =>
+  typeof SharedArrayBuffer !== "undefined" && window.crossOriginIsolated === true;
+
+const waitForSharedArrayBufferSupport = async (timeoutMs = 5000) => {
+  if (hasSharedArrayBufferSupport()) {
+    return true;
+  }
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+  if (!window.isSecureContext || !("serviceWorker" in navigator)) {
+    return hasSharedArrayBufferSupport();
+  }
+
+  const startTime = Date.now();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let intervalId = null;
+
+    function finalize(result) {
+      if (settled) return;
+      settled = true;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      try {
+        navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+      } catch (error) {
+        // ignore inability to detach listeners
+      }
+      resolve(result);
+    }
+
+    function checkSupport() {
+      if (hasSharedArrayBufferSupport()) {
+        finalize(true);
+      } else if (Date.now() - startTime >= timeoutMs) {
+        finalize(false);
+      }
+    }
+
+    function onControllerChange() {
+      setTimeout(checkSupport, 0);
+    }
+
+    intervalId = setInterval(checkSupport, 200);
+
+    try {
+      navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+      const readyPromise = navigator.serviceWorker.ready;
+      if (readyPromise && typeof readyPromise.then === "function") {
+        readyPromise
+          .then(() => {
+            checkSupport();
+          })
+          .catch(() => {
+            checkSupport();
+          });
+      }
+    } catch (error) {
+      // ignore inability to observe service worker state
+    }
+
+    checkSupport();
+  });
+};
+
+const showSharedArrayBufferWarning = (message, { log = true } = {}) => {
+  if (!message) return;
+  waitingForSharedArrayBuffer = true;
+  if (message !== lastSharedArrayBufferWarning) {
+    if (log) {
+      appendLog(message);
+    }
+    lastSharedArrayBufferWarning = message;
+  }
+  setStatus(message);
+};
+
+const ensureSharedArrayBufferSupport = async () => {
+  if (hasSharedArrayBufferSupport()) {
+    waitingForSharedArrayBuffer = false;
+    lastSharedArrayBufferWarning = null;
+    return;
+  }
+
+  const initialMessage = getSharedArrayBufferIssueMessage();
+  if (initialMessage) {
+    showSharedArrayBufferWarning(initialMessage);
+  }
+
+  const ready = await waitForSharedArrayBufferSupport();
+  if (ready && hasSharedArrayBufferSupport()) {
+    waitingForSharedArrayBuffer = false;
+    lastSharedArrayBufferWarning = null;
+    return;
+  }
+
+  const message =
+    getSharedArrayBufferIssueMessage() ||
+    "当前环境未提供 SharedArrayBuffer 支持，无法加载多线程转换引擎。";
+  showSharedArrayBufferWarning(message);
+  const error = new Error(message);
+  error.name = "SharedArrayBufferUnavailableError";
+  throw error;
+};
+
+const registerFFmpegEventListeners = (instance) => {
+  instance.on("log", ({ type, message }) => {
+    if (!message) return;
+    ffmpegLogBuffer.push({ type: type ?? "log", message });
+    if (ffmpegLogBuffer.length > MAX_LOG_BUFFER) {
+      ffmpegLogBuffer.splice(0, ffmpegLogBuffer.length - MAX_LOG_BUFFER);
+    }
+    appendLog(`[${type ?? "log"}] ${message}`);
+  });
+
+  instance.on("progress", ({ progress }) => {
+    if (!Number.isFinite(progress) || conversionProgress.total === 0) return;
+    const normalized = Math.max(0, Math.min(1, progress));
+    const percent = normalized * 100;
+    const overall = conversionProgress.total
+      ? ((conversionProgress.currentIndex + normalized) / conversionProgress.total) * 100
+      : percent;
+    updateProgress(overall);
+    let message = `转换中 ${conversionProgress.currentIndex + 1}/${conversionProgress.total}`;
+    if (conversionProgress.label) {
+      message += `：${conversionProgress.label}`;
+    }
+    message += ` ${percent.toFixed(0)}%`;
+    if (conversionProgress.startTime !== null) {
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const elapsedSeconds = (now - conversionProgress.startTime) / 1000;
+      if (Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0) {
+        message += `（耗时 ${elapsedSeconds.toFixed(1)}s）`;
+      }
+    }
+    setStatus(message);
+  });
+};
+
+const ensureFFmpegInstance = () => {
+  if (!ffmpeg) {
+    ffmpeg = new FFmpeg();
+    registerFFmpegEventListeners(ffmpeg);
+  }
+  return ffmpeg;
+};
+
 const cleanupTempFiles = async () => {
-  if (!ffmpegReady || trackedTempFiles.size === 0) return;
+  if (!ffmpegReady || !ffmpeg || trackedTempFiles.size === 0) return;
   const pending = Array.from(trackedTempFiles);
   for (const name of pending) {
     try {
@@ -675,9 +844,11 @@ const releaseTempFile = (name) => {
 
 const loadFFmpeg = async () => {
   if (ffmpegReady) return;
+  await ensureSharedArrayBufferSupport();
+  const instance = ensureFFmpegInstance();
   setStatus("正在加载多线程 FFmpeg 核心...");
   try {
-    await ffmpeg.load({
+    await instance.load({
       coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
       wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
       workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
@@ -1796,4 +1967,26 @@ configSection.hidden = true;
 updateAudioQualityVisibility();
 updateVideoQualityVisibility();
 
-setStatus("等待操作");
+const sharedArrayBufferMessage = getSharedArrayBufferIssueMessage();
+if (sharedArrayBufferMessage) {
+  showSharedArrayBufferWarning(sharedArrayBufferMessage, { log: false });
+  if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+    waitForSharedArrayBufferSupport(10000).then((ready) => {
+      if (!ready || !hasSharedArrayBufferSupport()) {
+        return;
+      }
+      waitingForSharedArrayBuffer = false;
+      lastSharedArrayBufferWarning = null;
+      if (
+        !ffmpegReady &&
+        !state.selectedFiles.length &&
+        !state.mediaEntries.length &&
+        conversionProgress.total === 0
+      ) {
+        setStatus("等待操作");
+      }
+    });
+  }
+} else {
+  setStatus("等待操作");
+}
