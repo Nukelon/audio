@@ -539,7 +539,7 @@ table {
   white-space: nowrap;
 }
 
-button.sort-button {
+.sort-button {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -547,24 +547,22 @@ button.sort-button {
   margin: 0;
   border: none;
   background: transparent;
-  border-radius: 0;
-  box-shadow: none;
   font: inherit;
-  color: #000;
+  color: inherit;
   cursor: pointer;
   line-height: inherit;
 }
 
-button.sort-button:focus-visible {
+.sort-button:focus-visible {
   outline: none;
   box-shadow: inset 0 -2px 0 0 currentColor;
 }
 
-button.sort-button:hover {
-  color: #000;
+.sort-button:hover {
+  color: var(--accent-end);
 }
 
-button.sort-button::after {
+.sort-button::after {
   content: "";
   display: inline-block;
   width: 0;
@@ -576,14 +574,14 @@ button.sort-button::after {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-button.sort-button[data-sort-state="asc"]::after {
+.sort-button[data-sort-state="asc"]::after {
   border-bottom: 0.34em solid currentColor;
   border-top: 0;
   transform: translateY(-0.1em);
   opacity: 0.85;
 }
 
-button.sort-button[data-sort-state="desc"]::after {
+.sort-button[data-sort-state="desc"]::after {
   border-top: 0.34em solid currentColor;
   border-bottom: 0;
   transform: translateY(0.1em);
