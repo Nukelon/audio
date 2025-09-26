@@ -347,68 +347,7 @@ const videoQualityProfiles = {
   verylow: { crf: 32, preset: "veryfast", scaleHeight: 480 },
 };
 
-const nav = typeof navigator !== "undefined" ? navigator : undefined;
-const navUserAgent = nav?.userAgent || "";
-const navPlatform = nav?.platform || "";
-const navMaxTouchPoints = Number(nav?.maxTouchPoints) || 0;
-const navHardwareConcurrency = Number(nav?.hardwareConcurrency) || 0;
-const navDeviceMemory = Number(nav?.deviceMemory) || 0;
-
-const isIOSDevice = (() => {
-  if (!nav) return false;
-  if (["iPhone", "iPad", "iPod"].includes(navPlatform)) return true;
-  if (/iPad|iPhone|iPod/.test(navUserAgent)) return true;
-  // iPadOS 13+ reports Mac platform but has touch support
-  if (navPlatform === "MacIntel" && navMaxTouchPoints > 1) return true;
-  return false;
-})();
-
-const isMobileLikeDevice = (() => {
-  if (!nav) return false;
-  if (isIOSDevice) return true;
-  return /Android|Mobi|Mobile/.test(navUserAgent);
-})();
-
-const preferFasterVideoPreset = (() => {
-  if (isIOSDevice) return true;
-  if (navHardwareConcurrency && navHardwareConcurrency <= 2) return true;
-  if (navDeviceMemory && navDeviceMemory <= 2) return true;
-  return isMobileLikeDevice;
-})();
-
-const PRESET_ACCELERATION_MAP = {
-  placebo: "veryfast",
-  veryslow: "faster",
-  slower: "fast",
-  slow: "medium",
-  medium: "fast",
-  fast: "faster",
-  faster: "veryfast",
-  veryfast: "superfast",
-};
-
-const resolvePresetForEnvironment = (preset) => {
-  if (!preset) return preset;
-  if (!preferFasterVideoPreset) return preset;
-  return PRESET_ACCELERATION_MAP[preset] || preset;
-};
-
-const computeDefaultVideoThreads = () => {
-  if (!navHardwareConcurrency) {
-    return preferFasterVideoPreset ? 1 : 2;
-  }
-  if (preferFasterVideoPreset && navHardwareConcurrency <= 2) {
-    return 1;
-  }
-  if (navHardwareConcurrency >= 8) return 4;
-  if (navHardwareConcurrency >= 6) return 3;
-  if (navHardwareConcurrency >= 4) return 2;
-  return 1;
-};
-
-const DEFAULT_VIDEO_THREADS = computeDefaultVideoThreads();
-
-let presetAdjustmentNotified = false;
+const DEFAULT_VIDEO_THREADS = 2;
 
 const audioContainers = [
   {
@@ -991,7 +930,6 @@ const resetProgress = () => {
   conversionProgress.currentIndex = 0;
   conversionProgress.startTime = null;
   conversionProgress.label = "";
-  presetAdjustmentNotified = false;
 };
 
 const handleFileInputChange = (event) => {
@@ -2082,20 +2020,6 @@ const getAudioQualitySetting = (qualityValue, codecValue) => {
   return { mode: "bitrate", bitrate: profile.bitrate };
 };
 
-const createVideoQualitySettingFromProfile = (profileKey, fallbackKey = "medium") => {
-  const profile = videoQualityProfiles[profileKey] || videoQualityProfiles[fallbackKey];
-  if (!profile) return null;
-  const resolvedPreset = resolvePresetForEnvironment(profile.preset);
-  return {
-    mode: "crf",
-    crf: profile.crf,
-    preset: resolvedPreset,
-    scaleHeight: profile.scaleHeight,
-    presetAdjustedFrom:
-      preferFasterVideoPreset && resolvedPreset !== profile.preset ? profile.preset : null,
-  };
-};
-
 const getVideoQualitySetting = (qualityValue) => {
   if (qualityValue === "lossless") {
     return { mode: "lossless" };
@@ -2109,19 +2033,13 @@ const getVideoQualitySetting = (qualityValue) => {
       bitrate: Number.isFinite(bitrate) && bitrate > 0 ? bitrate : undefined,
     };
   }
-  return (
-    createVideoQualitySettingFromProfile(qualityValue) ||
-    createVideoQualitySettingFromProfile("medium") || {
-      mode: "crf",
-      crf: 24,
-      preset: resolvePresetForEnvironment("fast"),
-      scaleHeight: videoQualityProfiles?.medium?.scaleHeight ?? null,
-      presetAdjustedFrom:
-        preferFasterVideoPreset && resolvePresetForEnvironment("fast") !== "fast"
-          ? "fast"
-          : null,
-    }
-  );
+  const profile = videoQualityProfiles[qualityValue] || videoQualityProfiles.medium;
+  return {
+    mode: "crf",
+    crf: profile.crf,
+    preset: profile.preset,
+    scaleHeight: profile.scaleHeight,
+  };
 };
 
 const ensureLosslessApplicable = (qualitySetting, targetCodec, sourceCodec) => {
@@ -2167,12 +2085,6 @@ const applyVideoQualityArgs = (args, codec, quality, analysis = {}, entryLabel =
   } else if (quality.mode === "crf") {
     if (quality.preset) {
       args.push("-preset", quality.preset);
-      if (quality.presetAdjustedFrom && !presetAdjustmentNotified) {
-        appendLog(
-          `检测到移动端或低性能设备，已自动将编码预设从 ${quality.presetAdjustedFrom} 调整为 ${quality.preset} 以提升转换速度。`,
-        );
-        presetAdjustmentNotified = true;
-      }
     }
     args.push("-crf", `${quality.crf}`);
     if (codec === "libvpx-vp9") {
@@ -2235,18 +2147,19 @@ const prepareConversionSettings = (entry, preset) => {
         videoCodec,
         audioCodec,
         audioQuality: ensureLosslessApplicable({ mode: "bitrate", bitrate: audioQualityProfiles[preset]?.bitrate || audioQualityProfiles.medium.bitrate }, audioCodec, analysis.audioCodec),
-        videoQuality:
-          createVideoQualitySettingFromProfile(preset) ||
-          createVideoQualitySettingFromProfile("medium") || {
-            mode: "crf",
-            crf: 24,
-            preset: resolvePresetForEnvironment("fast"),
-            scaleHeight: videoQualityProfiles?.medium?.scaleHeight ?? null,
-            presetAdjustedFrom:
-              preferFasterVideoPreset && resolvePresetForEnvironment("fast") !== "fast"
-                ? "fast"
-                : null,
-          },
+        videoQuality: videoQualityProfiles[preset]
+          ? {
+              mode: "crf",
+              crf: videoQualityProfiles[preset].crf,
+              preset: videoQualityProfiles[preset].preset,
+              scaleHeight: videoQualityProfiles[preset].scaleHeight,
+            }
+          : {
+              mode: "crf",
+              crf: 24,
+              preset: "fast",
+              scaleHeight: videoQualityProfiles.medium.scaleHeight,
+            },
       };
     }
     const container = getAudioContainerByValue(targetContainer) || audioContainers[0];
