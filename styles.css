@@ -19,6 +19,11 @@
   --tag-bg: rgba(59, 130, 246, 0.18);
   --tag-muted-bg: rgba(148, 163, 184, 0.3);
   --muted-text: rgba(100, 116, 139, 0.85);
+  --radius-xs: 10px;
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 22px;
+  --radius-xl: 26px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -129,11 +134,12 @@ p {
   justify-content: space-between;
   gap: 1.5rem;
   padding: 1.75rem;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background: var(--surface-strong-bg);
   border: 1px solid var(--card-border);
   box-shadow: 0 20px 35px rgba(15, 23, 42, 0.08);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
+    border-radius 0.3s ease;
 }
 
 .app-card:hover {
@@ -249,10 +255,10 @@ p {
 .uploader {
   position: relative;
   border: 2px dashed var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 3rem 1rem;
   text-align: center;
-  transition: border-color 0.3s ease, background 0.3s ease;
+  transition: border-color 0.3s ease, background 0.3s ease, border-radius 0.3s ease;
   background: var(--surface-bg);
 }
 
@@ -297,6 +303,7 @@ p {
   margin: 0 auto;
   flex-wrap: wrap;
   justify-content: center;
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
 }
 
 .mode-tab {
@@ -309,7 +316,8 @@ p {
   border: 1px solid transparent;
   box-shadow: none;
   transform: none;
-  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease,
+    border-color 0.2s ease, border-radius 0.3s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -331,16 +339,17 @@ p {
   background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 12px 26px var(--accent-shadow);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3), 0 16px 32px var(--accent-shadow);
 }
 
 .mode-tab.is-active:not(:disabled):hover {
-  box-shadow: 0 16px 32px var(--accent-shadow);
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.35), 0 18px 36px var(--accent-shadow);
   transform: none;
 }
 
 .mode-tab.is-active:focus-visible {
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.45), 0 16px 32px var(--accent-shadow);
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.4), 0 0 0 5px rgba(37, 99, 235, 0.35),
+    0 18px 36px var(--accent-shadow);
 }
 
 .controls {
@@ -350,8 +359,10 @@ p {
   gap: 1rem;
   background: var(--surface-bg);
   padding: 1rem 1.25rem;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .file-info {
@@ -413,9 +424,10 @@ button:not(.mode-tab):not(.sort-button):not(:disabled):hover {
 
 .progress {
   background: var(--surface-bg);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   padding: 1rem 1.25rem;
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
 }
 
 .progress-bar {
@@ -435,9 +447,10 @@ button:not(.mode-tab):not(.sort-button):not(:disabled):hover {
 .result,
 .log {
   background: var(--surface-bg);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   padding: 1.25rem 1.5rem;
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
 }
 
 .result p {
@@ -458,12 +471,12 @@ button:not(.mode-tab):not(.sort-button):not(:disabled):hover {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.75rem 1rem;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted-bg);
   color: var(--accent-end);
   font-weight: 600;
   text-decoration: none;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, border-radius 0.3s ease;
 }
 
 .download-list a:hover {
@@ -485,7 +498,7 @@ button:not(.mode-tab):not(.sort-button):not(:disabled):hover {
 
 .download-actions button {
   padding: 0.6rem 1.3rem;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
   font-size: 0.9rem;
 }
@@ -494,10 +507,11 @@ button:not(.mode-tab):not(.sort-button):not(:disabled):hover {
 .config {
   background: var(--surface-bg);
   border: 1px solid var(--border-color);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 1.25rem 1.5rem;
   display: grid;
   gap: 1.25rem;
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
 }
 
 .analysis-summary {
@@ -706,7 +720,7 @@ tbody tr:hover {
 .modal-dialog {
   position: relative;
   background: var(--surface-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   width: min(560px, calc(100% - 2.5rem));
   max-height: calc(100% - 4rem);
@@ -715,6 +729,8 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .modal-header {
@@ -736,8 +752,9 @@ tbody tr:hover {
   font-size: 1.5rem;
   line-height: 1;
   padding: 0.25rem;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
+  transition: border-radius 0.3s ease, background 0.2s ease, color 0.2s ease;
 }
 
 .modal-close:hover,
@@ -786,11 +803,12 @@ tbody tr:hover {
 
 .config-block {
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   padding: 1rem 1.2rem 1.25rem;
   background: var(--surface-strong-bg);
   display: grid;
   gap: 1rem;
+  transition: border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
 }
 
 .config-block legend {
@@ -812,11 +830,13 @@ tbody tr:hover {
 select,
 input[type="number"] {
   padding: 0.55rem 0.7rem;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--border-color);
   background: rgba(255, 255, 255, 0.92);
   color: var(--text-primary);
   font-size: 0.95rem;
+  transition: border-color 0.2s ease, background 0.3s ease, border-radius 0.3s ease,
+    box-shadow 0.2s ease;
 }
 
 input[type="number"]:focus,
@@ -865,7 +885,8 @@ select:focus {
   color: var(--muted-text);
   background: var(--surface-muted-bg);
   padding: 1rem;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
+  transition: border-radius 0.3s ease;
 }
 
 @media (max-width: 600px) {
