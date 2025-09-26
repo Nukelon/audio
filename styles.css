@@ -539,57 +539,49 @@ table {
   white-space: nowrap;
 }
 
-button.sort-button {
-  display: inline-grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+.sort-button {
+  display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   padding: 0;
   margin: 0;
   border: none;
   background: transparent;
-  border-radius: 0;
-  box-shadow: none;
   font: inherit;
-  color: #000;
+  color: inherit;
   cursor: pointer;
-  line-height: 1.3;
-  text-align: left;
-  white-space: normal;
-  word-break: break-word;
-  max-height: calc(1.3em * 2);
-  overflow: hidden;
+  line-height: inherit;
 }
 
-button.sort-button:focus-visible {
+.sort-button:focus-visible {
   outline: none;
+  box-shadow: inset 0 -2px 0 0 currentColor;
 }
 
-button.sort-button:hover {
-  color: #000;
+.sort-button:hover {
+  color: var(--accent-end);
 }
 
-button.sort-button::after {
+.sort-button::after {
   content: "";
-  justify-self: center;
-  align-self: center;
+  display: inline-block;
   width: 0;
   height: 0;
+  margin-left: 0.2rem;
   border-left: 0.28em solid transparent;
   border-right: 0.28em solid transparent;
   opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;
-  grid-column: 2;
 }
 
-button.sort-button[data-sort-state="asc"]::after {
+.sort-button[data-sort-state="asc"]::after {
   border-bottom: 0.34em solid currentColor;
   border-top: 0;
   transform: translateY(-0.1em);
   opacity: 0.85;
 }
 
-button.sort-button[data-sort-state="desc"]::after {
+.sort-button[data-sort-state="desc"]::after {
   border-top: 0.34em solid currentColor;
   border-bottom: 0;
   transform: translateY(0.1em);
