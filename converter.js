@@ -244,10 +244,34 @@ const videoMimeTypes = [
   "application/x-zip-compressed",
 ];
 
-const isIOSDevice =
-  typeof navigator !== "undefined" &&
-  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+const nav = typeof navigator !== "undefined" ? navigator : undefined;
+const navUserAgent = nav?.userAgent || "";
+const navPlatform = nav?.platform || "";
+const navMaxTouchPoints = Number(nav?.maxTouchPoints) || 0;
+const navHardwareConcurrency = Number(nav?.hardwareConcurrency) || 0;
+const navDeviceMemory = Number(nav?.deviceMemory) || 0;
+
+const isIOSDevice = (() => {
+  if (!nav) return false;
+  if (["iPhone", "iPad", "iPod"].includes(navPlatform)) return true;
+  if (/iPad|iPhone|iPod/.test(navUserAgent)) return true;
+  // iPadOS 13+ reports Mac platform but has touch support
+  if (navPlatform === "MacIntel" && navMaxTouchPoints > 1) return true;
+  return false;
+})();
+
+const isMobileLikeDevice = (() => {
+  if (!nav) return false;
+  if (isIOSDevice) return true;
+  return /Android|Mobi|Mobile/.test(navUserAgent);
+})();
+
+const preferFasterVideoPreset = (() => {
+  if (isIOSDevice) return true;
+  if (navHardwareConcurrency && navHardwareConcurrency <= 2) return true;
+  if (navDeviceMemory && navDeviceMemory <= 2) return true;
+  return isMobileLikeDevice;
+})();
 
 const iosAudioUniformTypes = buildIOSUniformTypeList(
   [
@@ -346,35 +370,6 @@ const videoQualityProfiles = {
   low: { crf: 28, preset: "faster", scaleHeight: 720 },
   verylow: { crf: 32, preset: "veryfast", scaleHeight: 480 },
 };
-
-const nav = typeof navigator !== "undefined" ? navigator : undefined;
-const navUserAgent = nav?.userAgent || "";
-const navPlatform = nav?.platform || "";
-const navMaxTouchPoints = Number(nav?.maxTouchPoints) || 0;
-const navHardwareConcurrency = Number(nav?.hardwareConcurrency) || 0;
-const navDeviceMemory = Number(nav?.deviceMemory) || 0;
-
-const isIOSDevice = (() => {
-  if (!nav) return false;
-  if (["iPhone", "iPad", "iPod"].includes(navPlatform)) return true;
-  if (/iPad|iPhone|iPod/.test(navUserAgent)) return true;
-  // iPadOS 13+ reports Mac platform but has touch support
-  if (navPlatform === "MacIntel" && navMaxTouchPoints > 1) return true;
-  return false;
-})();
-
-const isMobileLikeDevice = (() => {
-  if (!nav) return false;
-  if (isIOSDevice) return true;
-  return /Android|Mobi|Mobile/.test(navUserAgent);
-})();
-
-const preferFasterVideoPreset = (() => {
-  if (isIOSDevice) return true;
-  if (navHardwareConcurrency && navHardwareConcurrency <= 2) return true;
-  if (navDeviceMemory && navDeviceMemory <= 2) return true;
-  return isMobileLikeDevice;
-})();
 
 const PRESET_ACCELERATION_MAP = {
   placebo: "veryfast",
@@ -1567,82 +1562,63 @@ const buildAnalysisTable = (entries) => {
   let totalSize = 0;
 
   const sortedEntries = sortEntriesForDisplay(entries);
+  const fragment = document.createDocumentFragment();
+
+  const createCell = (text, className) => {
+    const cell = document.createElement("td");
+    if (className) {
+      if (Array.isArray(className)) {
+        cell.classList.add(...className);
+      } else {
+        cell.classList.add(className);
+      }
+    }
+    cell.textContent = text ?? "";
+    return cell;
+  };
 
   for (const entry of sortedEntries) {
     const tr = document.createElement("tr");
-    const labelCell = document.createElement("td");
-    labelCell.textContent = entry.displayName;
-    tr.appendChild(labelCell);
+    const { analysis = {} } = entry;
+    const { width, height, frameRate, container, videoCodec, audioCodec, hasAudio } = analysis;
 
-    const typeCell = document.createElement("td");
-    const typeLabel = entry.type === "video" ? "视频" : "音频";
-    typeCell.textContent = typeLabel;
-    tr.appendChild(typeCell);
+    tr.appendChild(createCell(entry.displayName));
+    tr.appendChild(createCell(entry.type === "video" ? "视频" : "音频"));
 
-    const sizeCell = document.createElement("td");
     const size = entry.file?.size ?? 0;
-    sizeCell.textContent = formatBytes(size);
-    sizeCell.classList.add("analysis-size");
-    tr.appendChild(sizeCell);
     totalSize += size;
+    tr.appendChild(createCell(formatBytes(size), "analysis-size"));
 
-    const uploadTimeCell = document.createElement("td");
-    uploadTimeCell.classList.add("analysis-time");
-    uploadTimeCell.textContent = formatDateTime(entry.uploadedAt);
-    tr.appendChild(uploadTimeCell);
+    tr.appendChild(createCell(formatDateTime(entry.uploadedAt), "analysis-time"));
+    tr.appendChild(createCell(formatDateTime(entry.createdAt), "analysis-time"));
 
-    const createdTimeCell = document.createElement("td");
-    createdTimeCell.classList.add("analysis-time");
-    createdTimeCell.textContent = formatDateTime(entry.createdAt);
-    tr.appendChild(createdTimeCell);
+    tr.appendChild(createCell(container ? `.${container}` : "未知"));
 
-    const containerCell = document.createElement("td");
-    containerCell.textContent = entry.analysis?.container ? `.${entry.analysis.container}` : "未知";
-    tr.appendChild(containerCell);
+    const resolutionLabel =
+      entry.type === "video"
+        ? width && height
+          ? `${width}×${height}`
+          : "未知"
+        : "-";
+    tr.appendChild(createCell(resolutionLabel, "column-video-only"));
 
-    const resolutionCell = document.createElement("td");
-    resolutionCell.classList.add("column-video-only");
+    let frameRateLabel = "-";
     if (entry.type === "video") {
-      if (entry.analysis?.width && entry.analysis?.height) {
-        resolutionCell.textContent = `${entry.analysis.width}×${entry.analysis.height}`;
-      } else {
-        resolutionCell.textContent = "未知";
-      }
-    } else {
-      resolutionCell.textContent = "-";
+      frameRateLabel = frameRate
+        ? `${frameRate % 1 === 0 ? frameRate.toFixed(0) : frameRate.toFixed(2)} fps`
+        : "未知";
     }
-    tr.appendChild(resolutionCell);
+    tr.appendChild(createCell(frameRateLabel, "column-video-only"));
 
-    const frameRateCell = document.createElement("td");
-    frameRateCell.classList.add("column-video-only");
-    if (entry.type === "video") {
-      if (entry.analysis?.frameRate) {
-        const frameRate = entry.analysis.frameRate;
-        frameRateCell.textContent = `${frameRate % 1 === 0 ? frameRate.toFixed(0) : frameRate.toFixed(2)} fps`;
-      } else {
-        frameRateCell.textContent = "未知";
-      }
-    } else {
-      frameRateCell.textContent = "-";
-    }
-    tr.appendChild(frameRateCell);
+    const videoCodecLabel = entry.type === "video" ? videoCodec || "未检测到" : "-";
+    tr.appendChild(createCell(videoCodecLabel));
 
-    const videoCodecCell = document.createElement("td");
-    videoCodecCell.textContent = entry.analysis?.videoCodec || (entry.type === "video" ? "未检测到" : "-");
-    tr.appendChild(videoCodecCell);
-
-    const audioCodecCell = document.createElement("td");
-    if (entry.analysis?.audioCodec) {
-      audioCodecCell.textContent = entry.analysis.audioCodec;
-    } else if (entry.analysis?.hasAudio) {
-      audioCodecCell.textContent = "未知";
-    } else {
-      audioCodecCell.textContent = "未检测到";
-    }
-    tr.appendChild(audioCodecCell);
+    const audioCodecLabel = audioCodec ? audioCodec : hasAudio ? "未知" : "未检测到";
+    tr.appendChild(createCell(audioCodecLabel));
 
     const actionsCell = document.createElement("td");
     actionsCell.classList.add("analysis-actions");
+
     const detailButton = document.createElement("button");
     detailButton.type = "button";
     detailButton.classList.add("detail-button", "analysis-action-button");
@@ -1660,12 +1636,13 @@ const buildAnalysisTable = (entries) => {
     actionsCell.appendChild(deleteButton);
 
     tr.appendChild(actionsCell);
-
-    analysisBody.appendChild(tr);
+    fragment.appendChild(tr);
 
     if (entry.type === "audio") audioCount += 1;
     if (entry.type === "video") videoCount += 1;
   }
+
+  analysisBody.appendChild(fragment);
 
   const summaryParts = [];
   if (audioCount) summaryParts.push(`${audioCount} 个音频文件`);
@@ -2419,10 +2396,13 @@ const renderResults = (modeState = state) => {
   }
 
   const downloadEntries = [];
+  const fragment = document.createDocumentFragment();
+
+  const createBlobFromData = (data) =>
+    new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)]);
+
   for (const result of modeState.results) {
-    const blob = new Blob([
-      result.data.buffer.slice(result.data.byteOffset, result.data.byteOffset + result.data.byteLength),
-    ]);
+    const blob = createBlobFromData(result.data);
     const url = URL.createObjectURL(blob);
     registerObjectUrl(url);
     const link = document.createElement("a");
@@ -2433,9 +2413,11 @@ const renderResults = (modeState = state) => {
     sizeSpan.className = "download-size";
     sizeSpan.textContent = formatBytes(blob.size);
     link.appendChild(sizeSpan);
-    downloadList.appendChild(link);
+    fragment.appendChild(link);
     downloadEntries.push([result.name, result.data]);
   }
+
+  downloadList.appendChild(fragment);
 
   resultSummary.textContent = `成功生成 ${modeState.results.length} 个文件，可单独下载或打包下载。`;
   downloadAllBtn.hidden = false;
