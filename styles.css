@@ -556,6 +556,8 @@ button.sort-button {
   margin: 0;
   border: none;
   background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
   border-radius: 0;
   box-shadow: none;
   font: inherit;
