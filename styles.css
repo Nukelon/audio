@@ -382,7 +382,7 @@ button,
   cursor: pointer;
 }
 
-button:not(.mode-tab) {
+button:not(.mode-tab):not(.sort-button) {
   padding: 0.9rem 1.8rem;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
@@ -398,7 +398,7 @@ button:disabled {
   box-shadow: none;
 }
 
-button:not(.mode-tab):not(:disabled):hover {
+button:not(.mode-tab):not(.sort-button):not(:disabled):hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 25px var(--accent-shadow);
 }
@@ -568,7 +568,7 @@ button.sort-button {
   white-space: normal;
   position: relative;
   outline: none;
-  transition: color 0.2s ease;
+  transition: color 0.2s ease, transform 0.2s ease;
   -webkit-tap-highlight-color: transparent;
   width: 100%;
 }
@@ -582,10 +582,12 @@ button.sort-button:focus-visible {
   outline: none;
   box-shadow: none;
   color: var(--text-primary);
+  transform: translateY(-2px);
 }
 
 button.sort-button:hover {
   color: var(--text-primary);
+  transform: translateY(-2px);
 }
 
 button.sort-button:focus-visible .sort-button-label {
