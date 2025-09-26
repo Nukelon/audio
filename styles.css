@@ -295,8 +295,8 @@ p {
 
 .mode-tabs {
   display: inline-flex;
-  gap: 0.85rem;
-  padding: 0.75rem 1.1rem;
+  gap: 1rem;
+  padding: 0.9rem 1.4rem;
   border-radius: 999px;
   border: 1px solid var(--border-color);
   background: var(--surface-bg);
@@ -307,12 +307,13 @@ p {
 }
 
 .mode-tab {
-  padding: 0.6rem 2.1rem;
+  padding: 0.75rem 2.4rem;
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
   font-weight: 600;
   letter-spacing: 0.01em;
+  font-size: 1rem;
   border: 1px solid transparent;
   box-shadow: none;
   transform: none;
@@ -339,17 +340,16 @@ p {
   background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3), 0 16px 32px var(--accent-shadow);
+  box-shadow: 0 14px 30px var(--accent-shadow);
 }
 
 .mode-tab.is-active:not(:disabled):hover {
-  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.35), 0 18px 36px var(--accent-shadow);
+  box-shadow: 0 16px 36px var(--accent-shadow);
   transform: none;
 }
 
 .mode-tab.is-active:focus-visible {
-  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.4), 0 0 0 5px rgba(37, 99, 235, 0.35),
-    0 18px 36px var(--accent-shadow);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.45), 0 16px 36px var(--accent-shadow);
 }
 
 .controls {
