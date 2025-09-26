@@ -531,12 +531,21 @@ table {
   color: var(--text-secondary);
 }
 
-.analysis-actions {
+th.analysis-actions {
+  text-align: center;
+  white-space: nowrap;
+}
+
+td.analysis-actions {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 0.5rem;
   white-space: nowrap;
+}
+
+.analysis-codec {
+  min-width: 7ch;
 }
 
 button.sort-button {
@@ -550,18 +559,48 @@ button.sort-button {
   border-radius: 0;
   box-shadow: none;
   font: inherit;
-  color: #000;
+  color: var(--text-secondary);
   cursor: pointer;
   line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  position: relative;
+  outline: none;
+  transition: color 0.2s ease;
+}
+
+button.sort-button:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 button.sort-button:focus-visible {
   outline: none;
-  box-shadow: inset 0 -2px 0 0 currentColor;
+  box-shadow: none;
+  color: var(--text-primary);
 }
 
 button.sort-button:hover {
-  color: #000;
+  color: var(--text-primary);
+}
+
+button.sort-button:focus-visible .sort-button-label {
+  text-decoration: underline;
+  color: var(--text-primary);
+}
+
+.sort-button-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--accent-start);
+  text-underline-offset: 0.2em;
 }
 
 button.sort-button::after {
