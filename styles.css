@@ -553,6 +553,13 @@ button.sort-button {
   color: #000;
   cursor: pointer;
   line-height: inherit;
+  text-align: left;
+  white-space: normal;
+}
+
+button.sort-button:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 button.sort-button:focus-visible {
@@ -562,6 +569,17 @@ button.sort-button:focus-visible {
 
 button.sort-button:hover {
   color: #000;
+}
+
+.sort-button-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  max-height: calc(1em * 1.2 * 2);
+  word-break: break-word;
 }
 
 button.sort-button::after {
