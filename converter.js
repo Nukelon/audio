@@ -4,6 +4,10 @@ import { unzipSync, zipSync } from "./vendor/fflate.min.js";
 
 const dropZone = document.getElementById("drop-zone");
 let fileInput = document.getElementById("file-input");
+const folderSelectContainer = document.getElementById("folder-select-container");
+const folderSelectBtn = document.getElementById("folder-select-btn");
+const directoryInput = document.getElementById("directory-input");
+const folderHint = document.getElementById("folder-hint");
 const convertBtn = document.getElementById("convert-btn");
 const fileInfo = document.getElementById("file-info");
 const statusEl = document.getElementById("status");
@@ -70,6 +74,27 @@ let entryIdCounter = 0;
 const textCollator = typeof Intl !== "undefined" && Intl.Collator
   ? new Intl.Collator("zh-Hans", { numeric: true, sensitivity: "base" })
   : null;
+
+const resolvePlatformString = () => {
+  const uaDataPlatform = navigator?.userAgentData?.platform;
+  if (uaDataPlatform) {
+    return uaDataPlatform;
+  }
+  if (navigator?.platform) {
+    return navigator.platform;
+  }
+  return navigator?.userAgent || "";
+};
+
+const platformString = resolvePlatformString();
+const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(platformString);
+const supportsDirectoryPicker =
+  typeof window !== "undefined" && typeof window.showDirectoryPicker === "function" && !isApplePlatform;
+const supportsDirectoryInput = (() => {
+  if (!directoryInput) return false;
+  return "webkitdirectory" in directoryInput;
+})();
+const canSelectDirectory = supportsDirectoryPicker || supportsDirectoryInput;
 
 const MODES = {
   AUDIO: "audio",
@@ -817,7 +842,7 @@ const isAudioFile = (file) => {
   if (typeof file.type === "string" && file.type.startsWith("audio/")) {
     return true;
   }
-  const ext = getExtension(file.name || file.webkitRelativePath || "");
+  const ext = getExtension(file?.name || file?.webkitRelativePath || file?.relativePath || "");
   return audioExtensions.has(ext);
 };
 
@@ -826,7 +851,7 @@ const isVideoFile = (file) => {
   if (typeof file.type === "string" && file.type.startsWith("video/")) {
     return true;
   }
-  const ext = getExtension(file.name || file.webkitRelativePath || "");
+  const ext = getExtension(file?.name || file?.webkitRelativePath || file?.relativePath || "");
   return videoExtensions.has(ext);
 };
 
@@ -1194,6 +1219,111 @@ const applySortForKey = (key) => {
   }
 };
 
+const assignRelativePath = (file, relativePath) => {
+  if (!file || !relativePath) return;
+  if (file.webkitRelativePath === relativePath) return;
+  try {
+    Object.defineProperty(file, "webkitRelativePath", {
+      value: relativePath,
+      configurable: true,
+    });
+    return;
+  } catch (error) {
+    // Continue to fallback assignment when defineProperty is not allowed
+  }
+  try {
+    file.webkitRelativePath = relativePath;
+  } catch (error) {
+    file.relativePath = relativePath;
+  }
+};
+
+const gatherFilesFromDirectoryHandle = async (directoryHandle) => {
+  if (!directoryHandle || typeof directoryHandle.values !== "function") {
+    return [];
+  }
+  const collected = [];
+  const walkDirectory = async (handle, pathSegments) => {
+    if (!handle || typeof handle.values !== "function") return;
+    for await (const entry of handle.values()) {
+      if (!entry) continue;
+      try {
+        if (entry.kind === "file" && typeof entry.getFile === "function") {
+          const file = await entry.getFile();
+          const relativePath = [...pathSegments, entry.name].join("/");
+          assignRelativePath(file, relativePath);
+          collected.push(file);
+        } else if (entry.kind === "directory") {
+          await walkDirectory(entry, [...pathSegments, entry.name]);
+        }
+      } catch (error) {
+        appendLog(`读取 ${entry?.name || "项目"} 时出错：${error.message || error}`);
+      }
+    }
+  };
+
+  const initialSegments = directoryHandle.name ? [directoryHandle.name] : [];
+  await walkDirectory(directoryHandle, initialSegments);
+  return collected;
+};
+
+const resetDirectoryInput = () => {
+  if (!directoryInput) return;
+  try {
+    directoryInput.value = "";
+  } catch (error) {
+    // ignore inability to reset programmatically
+  }
+};
+
+const handleDirectoryInputChange = (event) => {
+  if (!event?.target?.files) return;
+  if (isAnalyzing) {
+    setStatus("正在分析当前文件，请稍候再上传新文件");
+    resetDirectoryInput();
+    return;
+  }
+  const files = Array.from(event.target.files || []);
+  if (files.length) {
+    setStatus("正在准备分析文件...");
+    selectFiles(files);
+  }
+  resetDirectoryInput();
+};
+
+const handleFolderSelectClick = async () => {
+  if (isAnalyzing) {
+    setStatus("正在分析当前文件，请稍候再上传新文件");
+    return;
+  }
+  if (supportsDirectoryPicker) {
+    try {
+      const directoryHandle = await window.showDirectoryPicker({ mode: "read" });
+      if (!directoryHandle) return;
+      setStatus("正在读取文件夹...");
+      const files = await gatherFilesFromDirectoryHandle(directoryHandle);
+      if (!files.length) {
+        setStatus("未在文件夹中找到可用的文件");
+        return;
+      }
+      selectFiles(files);
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setStatus("已取消选择文件夹");
+      } else if (error) {
+        appendLog(error);
+        setStatus("打开文件夹失败，请重试");
+      }
+    }
+    return;
+  }
+  if (supportsDirectoryInput && directoryInput) {
+    directoryInput.click();
+    return;
+  }
+  setStatus("当前浏览器暂不支持直接选择文件夹，请使用文件选择或压缩包");
+};
+
 const selectFiles = (files = []) => {
   closeDetailModal();
   if (isAnalyzing) {
@@ -1273,7 +1403,7 @@ const gatherMediaEntries = async (files, mode) => {
   const entries = [];
   const uploadTracker = createUploadTracker();
   for (const file of files) {
-    const label = file.webkitRelativePath || file.name;
+    const label = file.webkitRelativePath || file.relativePath || file.name;
     const baseTimestamp = ensureTimestamp(getFileTimestamp(file));
     await collectFromEntry(file, label, entries, mode, baseTimestamp, uploadTracker);
   }
@@ -1352,7 +1482,7 @@ const collectFromEntry = async (
       id: entryIdCounter += 1,
       file,
       displayName: label,
-      ext: getExtension(file.name || file.webkitRelativePath || ""),
+      ext: getExtension(file?.name || file?.webkitRelativePath || file?.relativePath || ""),
       type: mode === MODES.VIDEO ? "video" : "audio",
       uploadedAt,
       createdAt: ensureTimestamp(baseTimestamp),
@@ -2645,6 +2775,30 @@ convertBtn.addEventListener("click", () => {
 });
 
 registerFileInputListeners(fileInput);
+
+if (folderSelectContainer) {
+  folderSelectContainer.hidden = false;
+  if (folderHint) {
+    if (canSelectDirectory && supportsDirectoryPicker) {
+      folderHint.textContent = "直接读取文件夹内的全部音视频，无需先压缩为 ZIP。";
+    } else if (canSelectDirectory && supportsDirectoryInput) {
+      folderHint.textContent = "系统将展开所选文件夹中的所有文件，并一次性加入列表。";
+    } else {
+      folderHint.textContent = "当前浏览器暂不支持直接导入文件夹，请继续使用文件选择或拖放。";
+    }
+  }
+}
+
+if (folderSelectBtn && canSelectDirectory) {
+  folderSelectBtn.addEventListener("click", handleFolderSelectClick);
+} else if (folderSelectBtn) {
+  folderSelectBtn.disabled = true;
+  folderSelectBtn.setAttribute("aria-disabled", "true");
+}
+
+if (supportsDirectoryInput && directoryInput) {
+  directoryInput.addEventListener("change", handleDirectoryInputChange);
+}
 
 dropZone.addEventListener("dragover", (event) => {
   if (isAnalyzing) return;
