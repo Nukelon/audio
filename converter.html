@@ -38,15 +38,26 @@
         >视频</button>
       </div>
       <section class="uploader" id="drop-zone">
-        <input
-          type="file"
-          id="file-input"
-          multiple
-        />
-        <label for="file-input" id="file-label">
-          <span class="label-main">拖放或点击选择文件</span>
-          <span class="label-sub">支持音频、视频与 ZIP 压缩包，所有处理均在本地完成</span>
-        </label>
+        <div class="uploader-main">
+          <input
+            type="file"
+            id="file-input"
+            multiple
+          />
+          <label for="file-input" id="file-label">
+            <span class="label-main">拖放或点击选择文件</span>
+            <span class="label-sub">支持音频、视频与 ZIP 压缩包，可在下方直接导入文件夹</span>
+          </label>
+        </div>
+        <div class="uploader-actions" id="folder-select-container" hidden>
+          <button type="button" id="folder-select-btn" class="secondary-button">
+            选择文件夹（推荐处理大体量文件）
+          </button>
+          <input type="file" id="directory-input" webkitdirectory multiple hidden />
+          <p class="uploader-hint" id="folder-hint">
+            在文件夹内直接选取音频或视频，可避免创建超大 ZIP 文件。
+          </p>
+        </div>
       </section>
       <section class="controls">
         <div class="file-info" id="file-info">尚未选择文件</div>
