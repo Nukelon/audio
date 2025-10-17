@@ -1080,6 +1080,11 @@ const loadFFmpeg = async () => {
       coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
       wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
       workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
+      coreOptions: {
+        // Increase the initial WebAssembly memory to avoid crashes when encoding with libopus.
+        wasmMemoryInitial: 512,
+        wasmMemoryMaximum: 2048,
+      },
     });
     ffmpegReady = true;
     setStatus("FFmpeg 已就绪");

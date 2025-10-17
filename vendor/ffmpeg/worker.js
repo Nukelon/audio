@@ -4,7 +4,12 @@
 import { CORE_URL, FFMessageType } from "./const.js";
 import { ERROR_UNKNOWN_MESSAGE_TYPE, ERROR_NOT_LOADED, ERROR_IMPORT_FAILURE, } from "./errors.js";
 let ffmpeg;
-const load = async ({ coreURL: _coreURL = CORE_URL, wasmURL: _wasmURL, workerURL: _workerURL, }) => {
+const load = async ({
+    coreURL: _coreURL = CORE_URL,
+    wasmURL: _wasmURL,
+    workerURL: _workerURL,
+    coreOptions: _coreOptions = {},
+}) => {
     const first = !ffmpeg;
     const coreURL = _coreURL;
     const wasmURL = _wasmURL ? _wasmURL : _coreURL.replace(/.js$/g, ".wasm");
@@ -23,11 +28,13 @@ const load = async ({ coreURL: _coreURL = CORE_URL, wasmURL: _wasmURL, workerURL
             throw ERROR_IMPORT_FAILURE;
         }
     }
-    ffmpeg = await self.createFFmpegCore({
+    const coreOptions = Object.assign({}, _coreOptions);
+    const mainScriptUrlOrBlob = `${coreURL}#${btoa(JSON.stringify({ wasmURL, workerURL }))}`;
+    ffmpeg = await self.createFFmpegCore(Object.assign(coreOptions, {
         // Fix `Overload resolution failed.` when using multi-threaded ffmpeg-core.
         // Encoded wasmURL and workerURL in the URL as a hack to fix locateFile issue.
-        mainScriptUrlOrBlob: `${coreURL}#${btoa(JSON.stringify({ wasmURL, workerURL }))}`,
-    });
+        mainScriptUrlOrBlob,
+    }));
     ffmpeg.setLogger((data) => self.postMessage({ type: FFMessageType.LOG, data }));
     ffmpeg.setProgress((data) => self.postMessage({
         type: FFMessageType.PROGRESS,
