@@ -2361,7 +2361,7 @@ const hasArgument = (args, flag) => {
   return index !== -1 && index < args.length - 1;
 };
 
-const applyAudioCodecSpecificArgs = (args, { audioCodec, container, audioQuality }) => {
+const applyAudioCodecSpecificArgs = (args, { audioCodec, container, audioQuality, mediaType }) => {
   if (audioCodec !== "libopus") {
     return;
   }
@@ -2374,12 +2374,14 @@ const applyAudioCodecSpecificArgs = (args, { audioCodec, container, audioQuality
     args.push("-application", "audio");
   }
 
-  if (!hasArgument(args, "-frame_duration")) {
-    args.push("-frame_duration", "60");
-  }
+  if (mediaType !== "audio") {
+    if (!hasArgument(args, "-frame_duration")) {
+      args.push("-frame_duration", "60");
+    }
 
-  if (!hasArgument(args, "-af")) {
-    args.push("-af", "aresample=async=1:first_pts=0");
+    if (!hasArgument(args, "-af")) {
+      args.push("-af", "aresample=async=1:first_pts=0");
+    }
   }
 
   if (container === "opus") {
@@ -2410,6 +2412,7 @@ const buildAudioArgs = (entry, outputName, settings) => {
       audioCodec: settings.audioCodec,
       container: settings.container,
       audioQuality: settings.audioQuality,
+      mediaType: entry.type,
     });
   }
   args.push("-vn");
@@ -2485,6 +2488,7 @@ const buildVideoArgs = (entry, outputName, settings) => {
         audioCodec: settings.audioCodec,
         container: settings.container,
         audioQuality: settings.audioQuality,
+        mediaType: entry.type,
       });
     }
   } else {
