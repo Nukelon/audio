@@ -17,6 +17,7 @@ const resultSection = document.getElementById("result");
 const resultSummary = document.getElementById("result-summary");
 const downloadList = document.getElementById("download-list");
 const downloadAllBtn = document.getElementById("download-all-btn");
+const downloadAllBtnDefaultText = downloadAllBtn ? downloadAllBtn.textContent : "";
 const modeTabs = document.querySelectorAll(".mode-tab");
 const labelSub = document.querySelector(".label-sub");
 const clearBtn = document.getElementById("clear-btn");
@@ -2641,9 +2642,11 @@ const convertEntries = async () => {
           exitCode = await ffmpeg.exec(args);
           if (exitCode === 0) {
             const data = await ffmpeg.readFile(outputName);
+            const blob = new Blob([data]);
             results.push({
               name: outputName,
-              data,
+              blob,
+              size: blob.size,
             });
           } else {
             appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
@@ -2728,7 +2731,11 @@ const renderResults = (modeState = state) => {
   revokeObjectUrls();
   resultSummary.textContent = "";
   downloadList.innerHTML = "";
-  downloadAllBtn.hidden = true;
+  if (downloadAllBtn) {
+    downloadAllBtn.hidden = true;
+    downloadAllBtn.disabled = false;
+    downloadAllBtn.textContent = downloadAllBtnDefaultText;
+  }
   resultSection.hidden = true;
 
   if (!modeState || !modeState.results.length) {
@@ -2742,11 +2749,24 @@ const renderResults = (modeState = state) => {
   const downloadEntries = [];
   const fragment = document.createDocumentFragment();
 
-  const createBlobFromData = (data) =>
-    new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)]);
+  const ensureResultBlob = (result) => {
+    if (!result) return null;
+    if (result.blob instanceof Blob) {
+      return result.blob;
+    }
+    if (result.data) {
+      const fallbackBlob = new Blob([result.data]);
+      result.blob = fallbackBlob;
+      result.size = fallbackBlob.size;
+      result.data = undefined;
+      return fallbackBlob;
+    }
+    return null;
+  };
 
   for (const result of modeState.results) {
-    const blob = createBlobFromData(result.data);
+    const blob = ensureResultBlob(result);
+    if (!blob) continue;
     const url = URL.createObjectURL(blob);
     registerObjectUrl(url);
     const link = document.createElement("a");
@@ -2755,26 +2775,44 @@ const renderResults = (modeState = state) => {
     link.textContent = result.name;
     const sizeSpan = document.createElement("span");
     sizeSpan.className = "download-size";
-    sizeSpan.textContent = formatBytes(blob.size);
+    sizeSpan.textContent = formatBytes(result.size ?? blob.size);
     link.appendChild(sizeSpan);
     fragment.appendChild(link);
-    downloadEntries.push([result.name, result.data]);
+    downloadEntries.push({ name: result.name, blob });
   }
 
   downloadList.appendChild(fragment);
 
   resultSummary.textContent = `成功生成 ${modeState.results.length} 个文件，可单独下载或打包下载。`;
-  downloadAllBtn.hidden = false;
-  downloadAllBtn.onclick = () => {
-    const zipData = zipSync(Object.fromEntries(downloadEntries));
-    const blob = new Blob([zipData], { type: "application/zip" });
-    const url = URL.createObjectURL(blob);
-    registerObjectUrl(url);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `converted_${Date.now()}.zip`;
-    a.click();
-  };
+  if (downloadAllBtn) {
+    downloadAllBtn.hidden = false;
+    downloadAllBtn.onclick = async () => {
+      if (!downloadEntries.length) return;
+      const originalText = downloadAllBtn.textContent;
+      downloadAllBtn.disabled = true;
+      downloadAllBtn.textContent = "正在准备压缩包...";
+      try {
+        const zipSources = {};
+        for (const entry of downloadEntries) {
+          const buffer = await entry.blob.arrayBuffer();
+          zipSources[entry.name] = new Uint8Array(buffer);
+        }
+        const zipData = zipSync(zipSources);
+        const blob = new Blob([zipData], { type: "application/zip" });
+        const url = URL.createObjectURL(blob);
+        registerObjectUrl(url);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `converted_${Date.now()}.zip`;
+        a.click();
+      } catch (error) {
+        appendLog(`打包下载失败：${error?.message || error}`);
+      } finally {
+        downloadAllBtn.disabled = false;
+        downloadAllBtn.textContent = originalText;
+      }
+    };
+  }
 
   resultSection.hidden = false;
   updateClearButtonState();
