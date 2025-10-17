@@ -2356,6 +2356,47 @@ const ensureLosslessApplicable = (qualitySetting, targetCodec, sourceCodec) => {
   return { mode: "bitrate", bitrate: audioQualityProfiles.ultra.bitrate };
 };
 
+const hasArgument = (args, flag) => {
+  const index = args.indexOf(flag);
+  return index !== -1 && index < args.length - 1;
+};
+
+const applyAudioCodecSpecificArgs = (args, { audioCodec, container, audioQuality }) => {
+  if (audioCodec !== "libopus") {
+    return;
+  }
+
+  if (!hasArgument(args, "-ar")) {
+    args.push("-ar", "48000");
+  }
+
+  if (!hasArgument(args, "-application")) {
+    args.push("-application", "audio");
+  }
+
+  if (!hasArgument(args, "-frame_duration")) {
+    args.push("-frame_duration", "60");
+  }
+
+  if (!hasArgument(args, "-af")) {
+    args.push("-af", "aresample=async=1:first_pts=0");
+  }
+
+  if (container === "opus") {
+    if (!hasArgument(args, "-f")) {
+      args.push("-f", "opus");
+    }
+  } else if (container === "ogg") {
+    if (!hasArgument(args, "-f")) {
+      args.push("-f", "ogg");
+    }
+  }
+
+  if (audioQuality?.mode === "bitrate" && audioQuality?.bitrate && !hasArgument(args, "-b:a")) {
+    args.push("-b:a", `${audioQuality.bitrate}k`);
+  }
+};
+
 const buildAudioArgs = (entry, outputName, settings) => {
   const args = ["-y", "-i", entry.inputName];
   if (settings.audioCodec === "copy") {
@@ -2365,6 +2406,11 @@ const buildAudioArgs = (entry, outputName, settings) => {
     if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
       args.push("-b:a", `${settings.audioQuality.bitrate}k`);
     }
+    applyAudioCodecSpecificArgs(args, {
+      audioCodec: settings.audioCodec,
+      container: settings.container,
+      audioQuality: settings.audioQuality,
+    });
   }
   args.push("-vn");
   args.push(outputName);
@@ -2435,6 +2481,11 @@ const buildVideoArgs = (entry, outputName, settings) => {
       if (settings.audioQuality.mode === "bitrate" && settings.audioQuality.bitrate) {
         args.push("-b:a", `${settings.audioQuality.bitrate}k`);
       }
+      applyAudioCodecSpecificArgs(args, {
+        audioCodec: settings.audioCodec,
+        container: settings.container,
+        audioQuality: settings.audioQuality,
+      });
     }
   } else {
     args.push("-an");
@@ -2565,6 +2616,7 @@ const convertEntries = async () => {
           ? buildAudioArgs({ ...entry, inputName }, outputName, {
               audioCodec: settings.audioCodec,
               audioQuality: settings.audioQuality,
+              container: targetContainer,
             })
           : buildVideoArgs({ ...entry, inputName }, outputName, {
               videoCodec: settings.videoCodec,
@@ -2572,6 +2624,7 @@ const convertEntries = async () => {
               audioQuality: settings.audioQuality,
               videoQuality: settings.videoQuality,
               includeAudio: Boolean(analysis.hasAudio),
+              container: targetContainer,
             });
 
         appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
