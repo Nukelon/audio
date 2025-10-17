@@ -132,7 +132,29 @@ const FFMPEG_MEMORY_PROFILES = [
   { wasmMemoryInitial: 2048, wasmMemoryMaximum: 8192 },
 ];
 
+const WASM_MEMORY_ERROR_PATTERNS = [
+  "out of memory",
+  "cannot enlarge memory",
+  "could not allocate memory",
+  "failed to grow the memory",
+  "memory access out of bounds",
+  "wasm memory",
+  "failed to allocate wasm memory",
+  "memory resource exhausted",
+  "insufficient memory",
+  "array buffer allocation failed",
+  "memory allocation failure",
+  "oom",
+  "invalid array buffer length",
+  "invalid typed array length",
+  "内存不足",
+  "內存不足",
+  "内存溢出",
+];
+
 let ffmpegMemoryProfileIndex = 0;
+let hasShownGlobalMemoryWarning = false;
+const globalMemoryErrorMessages = new Set();
 
 const conversionProgress = {
   total: 0,
@@ -1025,11 +1047,22 @@ const normalizeErrorMessage = (error) => {
   }
 };
 
+const isLikelyFFmpegMemoryError = (error) => {
+  const message = normalizeErrorMessage(error);
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return WASM_MEMORY_ERROR_PATTERNS.some((pattern) => normalized.includes(pattern));
+};
+
 const handleFFmpegExecutionError = async (error, { displayLabel = "" } = {}) => {
   const message = normalizeErrorMessage(error);
   if (!message) return false;
   const trimmedMessage = message.trim();
-  if (trimmedMessage.includes("Out of bounds memory access")) {
+  if (isLikelyFFmpegMemoryError(trimmedMessage)) {
+    const contextLabel = displayLabel
+      ? `FFmpeg 转换（${displayLabel}）`
+      : "FFmpeg 转换";
+    notifyBrowserMemoryConstraint({ context: contextLabel, message: trimmedMessage });
     appendLog(
       `检测到 WebAssembly 内存不足，${displayLabel ? `在处理 ${displayLabel} 时` : ""}正在尝试扩展内存配置后重试。`,
     );
@@ -1166,32 +1199,93 @@ const resetFFmpegInstance = () => {
   trackedTempFiles.clear();
 };
 
+const notifyBrowserMemoryConstraint = ({ context = "", message = "" } = {}) => {
+  const label = context ? `${context}：` : "";
+  const normalizedMessage = message || "浏览器拒绝分配额外的 WebAssembly 内存";
+  appendLog(`${label}检测到可能的 WebAssembly 内存不足：${normalizedMessage}`);
+  if (!hasShownGlobalMemoryWarning) {
+    setStatus("检测到浏览器内存不足，请尝试降低转换质量、分辨率或分批处理文件");
+    hasShownGlobalMemoryWarning = true;
+  }
+};
+
+const handlePotentialGlobalMemoryError = (candidate, { context = "" } = {}) => {
+  const message = normalizeErrorMessage(candidate);
+  if (!message) {
+    return false;
+  }
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (!isLikelyFFmpegMemoryError(trimmed)) {
+    return false;
+  }
+
+  notifyBrowserMemoryConstraint({ context, message: trimmed });
+
+  const profileKey = `${ffmpegMemoryProfileIndex}:${trimmed}`;
+  if (!globalMemoryErrorMessages.has(profileKey)) {
+    globalMemoryErrorMessages.add(profileKey);
+    if (increaseFFmpegMemoryProfile()) {
+      const profile = getCurrentFFmpegMemoryProfile();
+      const description = describeMemoryProfile(profile);
+      if (description) {
+        appendLog(`已尝试将 FFmpeg 内存配置升级为：${description}`);
+      } else {
+        appendLog("已尝试提高 FFmpeg 内存配置");
+      }
+      resetFFmpegInstance();
+    } else if (FFMPEG_MEMORY_PROFILES.length) {
+      appendLog("已达到可用的最大内存配置，浏览器可能无法处理当前任务。");
+    }
+  }
+
+  return true;
+};
+
 const loadFFmpeg = async () => {
   if (ffmpegReady) return;
-  const memoryProfile = getCurrentFFmpegMemoryProfile();
-  const memoryDescription = describeMemoryProfile(memoryProfile);
-  const loadMessage = memoryDescription
-    ? `正在加载多线程 FFmpeg 核心（内存 ${memoryDescription}）...`
-    : "正在加载多线程 FFmpeg 核心...";
-  setStatus(loadMessage);
-  if (memoryDescription) {
-    appendLog(`FFmpeg 内存配置：${memoryDescription}`);
-  }
-  try {
-    await ffmpeg.load({
-      coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
-      wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
-      workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
-      coreOptions: {
-        ...(memoryProfile || {}),
-      },
-    });
-    ffmpegReady = true;
-    setStatus("FFmpeg 已就绪");
-  } catch (error) {
-    appendLog(error);
-    setStatus("加载 FFmpeg 失败，请刷新页面后重试");
-    throw error;
+  while (!ffmpegReady) {
+    const memoryProfile = getCurrentFFmpegMemoryProfile();
+    const memoryDescription = describeMemoryProfile(memoryProfile);
+    const loadMessage = memoryDescription
+      ? `正在加载多线程 FFmpeg 核心（内存 ${memoryDescription}）...`
+      : "正在加载多线程 FFmpeg 核心...";
+    setStatus(loadMessage);
+    if (memoryDescription) {
+      appendLog(`FFmpeg 内存配置：${memoryDescription}`);
+    }
+    try {
+      await ffmpeg.load({
+        coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
+        wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
+        workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
+        coreOptions: {
+          ...(memoryProfile || {}),
+        },
+      });
+      ffmpegReady = true;
+      setStatus("FFmpeg 已就绪");
+    } catch (error) {
+      const message = normalizeErrorMessage(error);
+      appendLog(`加载 FFmpeg 失败：${message || error}`);
+      if (isLikelyFFmpegMemoryError(message)) {
+        if (increaseFFmpegMemoryProfile()) {
+          const nextProfile = getCurrentFFmpegMemoryProfile();
+          const nextDescription = describeMemoryProfile(nextProfile);
+          setStatus("检测到内存不足，正在尝试扩展 FFmpeg 内存配置...");
+          if (nextDescription) {
+            appendLog(`尝试升级 FFmpeg 内存配置为：${nextDescription}`);
+          }
+          resetFFmpegInstance();
+          continue;
+        }
+        appendLog("已达到可用的最大内存配置，无法在浏览器中加载更大的 FFmpeg 核心。");
+      }
+      setStatus("加载 FFmpeg 失败，请刷新页面后重试");
+      throw error;
+    }
   }
 };
 
@@ -2902,6 +2996,34 @@ ffmpeg.on("progress", ({ progress }) => {
   }
   setStatus(message);
 });
+
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (event) => {
+    if (!event) return;
+    const contextParts = ["全局脚本错误"];
+    if (event.filename) {
+      contextParts.push(event.filename);
+    }
+    const context = contextParts.join("：");
+    if (handlePotentialGlobalMemoryError(event.message, { context })) {
+      return;
+    }
+    if (event.error) {
+      handlePotentialGlobalMemoryError(event.error, { context });
+    }
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    if (!event) return;
+    const context = "未处理的 Promise 拒绝";
+    if (handlePotentialGlobalMemoryError(event.reason, { context })) {
+      return;
+    }
+    if (event.reason && typeof event.reason === "object" && "message" in event.reason) {
+      handlePotentialGlobalMemoryError(event.reason.message, { context });
+    }
+  });
+}
 
 if (analysisBody) {
   analysisBody.addEventListener("click", (event) => {
