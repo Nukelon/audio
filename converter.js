@@ -123,6 +123,16 @@ let state = modeStates[currentMode];
 const currentObjectUrls = [];
 const trackedTempFiles = new Set();
 
+const FFMPEG_MEMORY_PROFILES = [
+  { wasmMemoryInitial: 512, wasmMemoryMaximum: 2048 },
+  { wasmMemoryInitial: 768, wasmMemoryMaximum: 3072 },
+  { wasmMemoryInitial: 1024, wasmMemoryMaximum: 4096 },
+  { wasmMemoryInitial: 1536, wasmMemoryMaximum: 6144 },
+  { wasmMemoryInitial: 2048, wasmMemoryMaximum: 8192 },
+];
+
+let ffmpegMemoryProfileIndex = 0;
+
 const conversionProgress = {
   total: 0,
   currentIndex: 0,
@@ -1000,6 +1010,43 @@ const setStatus = (message) => {
   statusEl.textContent = message;
 };
 
+const normalizeErrorMessage = (error) => {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message || "";
+  if (typeof error === "object" && "message" in error) {
+    return String(error.message);
+  }
+  try {
+    return JSON.stringify(error);
+  } catch (serializationError) {
+    return String(error);
+  }
+};
+
+const handleFFmpegExecutionError = async (error, { displayLabel = "" } = {}) => {
+  const message = normalizeErrorMessage(error);
+  if (!message) return false;
+  const trimmedMessage = message.trim();
+  if (trimmedMessage.includes("Out of bounds memory access")) {
+    appendLog(
+      `检测到 WebAssembly 内存不足，${displayLabel ? `在处理 ${displayLabel} 时` : ""}正在尝试扩展内存配置后重试。`,
+    );
+    if (!increaseFFmpegMemoryProfile()) {
+      appendLog("已达到可用的最大内存配置，无法继续自动重试。请尝试减少同时转换的文件数量或降低目标编码质量。");
+      return false;
+    }
+    const profile = getCurrentFFmpegMemoryProfile();
+    const description = describeMemoryProfile(profile);
+    if (description) {
+      appendLog(`升级 FFmpeg 内存配置为：${description}`);
+    }
+    resetFFmpegInstance();
+    return true;
+  }
+  return false;
+};
+
 const updateProgress = (value) => {
   const clamped = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   progressBar.style.width = `${clamped}%`;
@@ -1072,18 +1119,70 @@ const releaseTempFile = (name) => {
   trackedTempFiles.delete(name);
 };
 
+const getCurrentFFmpegMemoryProfile = () => {
+  if (!FFMPEG_MEMORY_PROFILES.length) return null;
+  const index = Math.min(
+    Math.max(0, ffmpegMemoryProfileIndex),
+    FFMPEG_MEMORY_PROFILES.length - 1,
+  );
+  return FFMPEG_MEMORY_PROFILES[index];
+};
+
+const describeMemoryProfile = (profile) => {
+  if (!profile) return "";
+  const { wasmMemoryInitial, wasmMemoryMaximum } = profile;
+  const formatValue = (value) =>
+    typeof value === "number" && Number.isFinite(value) ? `${value}MB` : String(value ?? "");
+  if (wasmMemoryInitial && wasmMemoryMaximum) {
+    return `${formatValue(wasmMemoryInitial)} → ${formatValue(wasmMemoryMaximum)}`;
+  }
+  if (wasmMemoryInitial) {
+    return formatValue(wasmMemoryInitial);
+  }
+  if (wasmMemoryMaximum) {
+    return formatValue(wasmMemoryMaximum);
+  }
+  return "";
+};
+
+const canIncreaseFFmpegMemoryProfile = () => ffmpegMemoryProfileIndex < FFMPEG_MEMORY_PROFILES.length - 1;
+
+const increaseFFmpegMemoryProfile = () => {
+  if (!canIncreaseFFmpegMemoryProfile()) {
+    return false;
+  }
+  ffmpegMemoryProfileIndex += 1;
+  return true;
+};
+
+const resetFFmpegInstance = () => {
+  try {
+    ffmpeg?.terminate?.();
+  } catch (error) {
+    console.warn("终止 FFmpeg 实例失败", error);
+  }
+  ffmpegReady = false;
+  trackedTempFiles.clear();
+};
+
 const loadFFmpeg = async () => {
   if (ffmpegReady) return;
-  setStatus("正在加载多线程 FFmpeg 核心...");
+  const memoryProfile = getCurrentFFmpegMemoryProfile();
+  const memoryDescription = describeMemoryProfile(memoryProfile);
+  const loadMessage = memoryDescription
+    ? `正在加载多线程 FFmpeg 核心（内存 ${memoryDescription}）...`
+    : "正在加载多线程 FFmpeg 核心...";
+  setStatus(loadMessage);
+  if (memoryDescription) {
+    appendLog(`FFmpeg 内存配置：${memoryDescription}`);
+  }
   try {
     await ffmpeg.load({
       coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
       wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
       workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
       coreOptions: {
-        // Increase the initial WebAssembly memory to avoid crashes when encoding with libopus.
-        wasmMemoryInitial: 512,
-        wasmMemoryMaximum: 2048,
+        ...(memoryProfile || {}),
       },
     });
     ffmpegReady = true;
@@ -2441,65 +2540,99 @@ const convertEntries = async () => {
         entry.inputName = inputName;
       }
 
-      if (!trackedTempFiles.has(inputName)) {
-        appendLog(`写入临时文件：${inputName}`);
-        await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
-        trackTempFile(inputName);
-      } else {
-        appendLog(`复用缓存文件：${inputName}`);
-      }
-
       const displayLabel = shortenLabel(entry.displayName);
-      conversionProgress.currentIndex = i;
-      conversionProgress.startTime = typeof performance !== "undefined" ? performance.now() : Date.now();
       conversionProgress.label = displayLabel;
 
-      const args = entry.type === "audio"
-        ? buildAudioArgs({ ...entry, inputName }, outputName, {
-            audioCodec: settings.audioCodec,
-            audioQuality: settings.audioQuality,
-          })
-        : buildVideoArgs({ ...entry, inputName }, outputName, {
-            videoCodec: settings.videoCodec,
-            audioCodec: settings.audioCodec,
-            audioQuality: settings.audioQuality,
-            videoQuality: settings.videoQuality,
-            includeAudio: Boolean(analysis.hasAudio),
-          });
+      let conversionCompleted = false;
+      let attempt = 0;
 
-      appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
-      setStatus(`正在转换 ${i + 1}/${state.mediaEntries.length}：${displayLabel}`);
-      let exitCode = 0;
-      try {
-        exitCode = await ffmpeg.exec(args);
-        if (exitCode === 0) {
-          const data = await ffmpeg.readFile(outputName);
-          results.push({
-            name: outputName,
-            data,
-          });
+      while (!conversionCompleted) {
+        attempt += 1;
+        await loadFFmpeg();
+
+        conversionProgress.currentIndex = i;
+        conversionProgress.startTime = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+        if (!trackedTempFiles.has(inputName)) {
+          appendLog(`写入临时文件：${inputName}`);
+          await ffmpeg.writeFile(inputName, await fetchFile(entry.file));
+          trackTempFile(inputName);
         } else {
-          appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
-          if (exitCode === -1) {
-            appendLog("可能由于浏览器内存不足导致失败，请尝试降低视频质量或选择分辨率更低的预设后重试");
-          }
+          appendLog(`复用缓存文件：${inputName}`);
         }
-      } finally {
-        conversionProgress.startTime = null;
+
+        const args = entry.type === "audio"
+          ? buildAudioArgs({ ...entry, inputName }, outputName, {
+              audioCodec: settings.audioCodec,
+              audioQuality: settings.audioQuality,
+            })
+          : buildVideoArgs({ ...entry, inputName }, outputName, {
+              videoCodec: settings.videoCodec,
+              audioCodec: settings.audioCodec,
+              audioQuality: settings.audioQuality,
+              videoQuality: settings.videoQuality,
+              includeAudio: Boolean(analysis.hasAudio),
+            });
+
+        appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
+        setStatus(`正在转换 ${i + 1}/${state.mediaEntries.length}：${displayLabel}`);
+
+        let shouldRetry = false;
+        let exitCode = 0;
+
         try {
-          await ffmpeg.deleteFile?.(outputName);
+          exitCode = await ffmpeg.exec(args);
+          if (exitCode === 0) {
+            const data = await ffmpeg.readFile(outputName);
+            results.push({
+              name: outputName,
+              data,
+            });
+          } else {
+            appendLog(`转换失败（${entry.displayName}），返回码 ${exitCode}`);
+            if (exitCode === -1) {
+              appendLog("可能由于浏览器内存不足导致失败，请尝试降低视频质量或选择分辨率更低的预设后重试");
+            }
+          }
+          conversionCompleted = true;
         } catch (error) {
-          appendLog(`清理输出失败：${error.message || error}`);
-        }
-        if (inputName && trackedTempFiles.has(inputName)) {
-          try {
-            await ffmpeg.deleteFile?.(inputName);
-          } catch (error) {
-            appendLog(`清理缓存文件失败（${entry.displayName}）：${error.message || error}`);
-          } finally {
+          const retryable = await handleFFmpegExecutionError(error, { displayLabel });
+          if (retryable) {
+            shouldRetry = true;
+            appendLog(`重新初始化 FFmpeg 后将再次尝试转换 ${displayLabel}（第 ${attempt + 1} 次尝试）`);
+          } else {
+            throw error;
+          }
+        } finally {
+          if (!shouldRetry) {
+            conversionProgress.startTime = null;
+          }
+          if (ffmpegReady) {
+            try {
+              await ffmpeg.deleteFile?.(outputName);
+            } catch (error) {
+              appendLog(`清理输出失败：${error.message || error}`);
+            }
+            if (inputName && trackedTempFiles.has(inputName)) {
+              try {
+                await ffmpeg.deleteFile?.(inputName);
+              } catch (error) {
+                appendLog(`清理缓存文件失败（${entry.displayName}）：${error.message || error}`);
+              } finally {
+                releaseTempFile(inputName);
+              }
+            }
+          } else {
             releaseTempFile(inputName);
           }
         }
+
+        if (shouldRetry) {
+          conversionProgress.startTime = null;
+          continue;
+        }
+
+        conversionCompleted = true;
       }
 
       const overallProgress = ((i + 1) / conversionProgress.total) * 100;
