@@ -2375,14 +2375,6 @@ const applyAudioCodecSpecificArgs = (args, { audioCodec, container, audioQuality
     args.push("-application", "audio");
   }
 
-  if (!hasArgument(args, "-frame_duration")) {
-    args.push("-frame_duration", "60");
-  }
-
-  if (!hasArgument(args, "-af")) {
-    args.push("-af", "aresample=async=1:first_pts=0");
-  }
-
   if (container === "opus") {
     if (!hasArgument(args, "-f")) {
       args.push("-f", "opus");
