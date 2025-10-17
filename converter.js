@@ -89,9 +89,11 @@ const resolvePlatformString = () => {
 const platformString = resolvePlatformString();
 const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(platformString);
 const supportsDirectoryPicker =
-  typeof window !== "undefined" && typeof window.showDirectoryPicker === "function" && !isApplePlatform;
+  typeof window !== "undefined" &&
+  typeof window.showDirectoryPicker === "function" &&
+  !isApplePlatform;
 const supportsDirectoryInput = (() => {
-  if (!directoryInput) return false;
+  if (!directoryInput || isApplePlatform) return false;
   return "webkitdirectory" in directoryInput;
 })();
 const canSelectDirectory = supportsDirectoryPicker || supportsDirectoryInput;
