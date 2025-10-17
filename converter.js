@@ -1603,6 +1603,16 @@ const analyzeEntry = async (entry, index) => {
     bitrate: info.bitrate,
     metadata: info.metadata || {},
   };
+
+  if (trackedTempFiles.has(inputName)) {
+    try {
+      await ffmpeg.deleteFile?.(inputName);
+    } catch (error) {
+      appendLog(`清理缓存文件失败（${entry.displayName}）：${error.message || error}`);
+    } finally {
+      releaseTempFile(inputName);
+    }
+  }
 };
 
 const analyzeSelectedFiles = async ({ append = false } = {}) => {
@@ -2480,6 +2490,15 @@ const convertEntries = async () => {
           await ffmpeg.deleteFile?.(outputName);
         } catch (error) {
           appendLog(`清理输出失败：${error.message || error}`);
+        }
+        if (inputName && trackedTempFiles.has(inputName)) {
+          try {
+            await ffmpeg.deleteFile?.(inputName);
+          } catch (error) {
+            appendLog(`清理缓存文件失败（${entry.displayName}）：${error.message || error}`);
+          } finally {
+            releaseTempFile(inputName);
+          }
         }
       }
 
