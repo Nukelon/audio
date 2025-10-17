@@ -132,20 +132,6 @@ const FFMPEG_MEMORY_PROFILES = [
   { wasmMemoryInitial: 2048, wasmMemoryMaximum: 8192 },
 ];
 
-const WASM_MEMORY_ERROR_PATTERNS = [
-  "out of memory",
-  "cannot enlarge memory",
-  "could not allocate memory",
-  "failed to grow the memory",
-  "memory access out of bounds",
-  "wasm memory",
-  "failed to allocate wasm memory",
-  "memory resource exhausted",
-  "insufficient memory",
-  "array buffer allocation failed",
-  "memory allocation failure",
-];
-
 let ffmpegMemoryProfileIndex = 0;
 
 const conversionProgress = {
@@ -1039,18 +1025,11 @@ const normalizeErrorMessage = (error) => {
   }
 };
 
-const isLikelyFFmpegMemoryError = (error) => {
-  const message = normalizeErrorMessage(error);
-  if (!message) return false;
-  const normalized = message.toLowerCase();
-  return WASM_MEMORY_ERROR_PATTERNS.some((pattern) => normalized.includes(pattern));
-};
-
 const handleFFmpegExecutionError = async (error, { displayLabel = "" } = {}) => {
   const message = normalizeErrorMessage(error);
   if (!message) return false;
   const trimmedMessage = message.trim();
-  if (isLikelyFFmpegMemoryError(trimmedMessage)) {
+  if (trimmedMessage.includes("Out of bounds memory access")) {
     appendLog(
       `检测到 WebAssembly 内存不足，${displayLabel ? `在处理 ${displayLabel} 时` : ""}正在尝试扩展内存配置后重试。`,
     );
@@ -1189,46 +1168,30 @@ const resetFFmpegInstance = () => {
 
 const loadFFmpeg = async () => {
   if (ffmpegReady) return;
-  while (!ffmpegReady) {
-    const memoryProfile = getCurrentFFmpegMemoryProfile();
-    const memoryDescription = describeMemoryProfile(memoryProfile);
-    const loadMessage = memoryDescription
-      ? `正在加载多线程 FFmpeg 核心（内存 ${memoryDescription}）...`
-      : "正在加载多线程 FFmpeg 核心...";
-    setStatus(loadMessage);
-    if (memoryDescription) {
-      appendLog(`FFmpeg 内存配置：${memoryDescription}`);
-    }
-    try {
-      await ffmpeg.load({
-        coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
-        wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
-        workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
-        coreOptions: {
-          ...(memoryProfile || {}),
-        },
-      });
-      ffmpegReady = true;
-      setStatus("FFmpeg 已就绪");
-    } catch (error) {
-      const message = normalizeErrorMessage(error);
-      appendLog(`加载 FFmpeg 失败：${message || error}`);
-      if (isLikelyFFmpegMemoryError(message)) {
-        if (increaseFFmpegMemoryProfile()) {
-          const nextProfile = getCurrentFFmpegMemoryProfile();
-          const nextDescription = describeMemoryProfile(nextProfile);
-          setStatus("检测到内存不足，正在尝试扩展 FFmpeg 内存配置...");
-          if (nextDescription) {
-            appendLog(`尝试升级 FFmpeg 内存配置为：${nextDescription}`);
-          }
-          resetFFmpegInstance();
-          continue;
-        }
-        appendLog("已达到可用的最大内存配置，无法在浏览器中加载更大的 FFmpeg 核心。");
-      }
-      setStatus("加载 FFmpeg 失败，请刷新页面后重试");
-      throw error;
-    }
+  const memoryProfile = getCurrentFFmpegMemoryProfile();
+  const memoryDescription = describeMemoryProfile(memoryProfile);
+  const loadMessage = memoryDescription
+    ? `正在加载多线程 FFmpeg 核心（内存 ${memoryDescription}）...`
+    : "正在加载多线程 FFmpeg 核心...";
+  setStatus(loadMessage);
+  if (memoryDescription) {
+    appendLog(`FFmpeg 内存配置：${memoryDescription}`);
+  }
+  try {
+    await ffmpeg.load({
+      coreURL: new URL("./ffmpeg-core/ffmpeg-core.js", window.location.href).href,
+      wasmURL: new URL("./ffmpeg-core/ffmpeg-core.wasm", window.location.href).href,
+      workerURL: new URL("./ffmpeg-core/ffmpeg-core.worker.js", window.location.href).href,
+      coreOptions: {
+        ...(memoryProfile || {}),
+      },
+    });
+    ffmpegReady = true;
+    setStatus("FFmpeg 已就绪");
+  } catch (error) {
+    appendLog(error);
+    setStatus("加载 FFmpeg 失败，请刷新页面后重试");
+    throw error;
   }
 };
 
