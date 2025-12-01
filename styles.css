@@ -259,12 +259,15 @@ p {
   border-radius: var(--radius-lg);
   padding: 2.5rem 1.5rem;
   text-align: center;
-  transition: border-color 0.3s ease, background 0.3s ease, border-radius 0.3s ease;
-  background: var(--surface-bg);
+  transition: border-color 0.3s ease, background 0.3s ease, border-radius 0.3s ease,
+    box-shadow 0.25s ease;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.02), rgba(56, 189, 248, 0.04)),
+    var(--surface-bg);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
   align-items: center;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
 }
 
 .uploader-main {
@@ -282,7 +285,9 @@ p {
 
 .uploader.dragover {
   border-color: var(--accent-end);
-  background: var(--surface-muted-bg);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(56, 189, 248, 0.1)),
+    var(--surface-muted-bg);
+  box-shadow: 0 16px 36px rgba(59, 130, 246, 0.18);
 }
 
 #file-input {
@@ -935,6 +940,58 @@ select:focus {
   padding: 1rem;
   border-radius: var(--radius-sm);
   transition: border-radius 0.3s ease;
+}
+
+body.is-busy {
+  overflow: hidden;
+}
+
+.page-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.28), transparent 38%),
+    radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.24), transparent 42%),
+    rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(10px) saturate(130%);
+  z-index: 50;
+}
+
+.page-overlay[hidden] {
+  display: none;
+}
+
+.page-overlay__content {
+  background: var(--surface-strong-bg);
+  border: 1px solid var(--card-border);
+  padding: 1.5rem 1.75rem;
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 0.75rem;
+  min-width: 240px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+
+.page-overlay__spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(59, 130, 246, 0.25);
+  border-top-color: var(--accent-start);
+  animation: overlay-spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes overlay-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 600px) {

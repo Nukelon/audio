@@ -39,6 +39,9 @@ const presetSelect = document.getElementById("preset-select");
 const presetContainerGroup = document.getElementById("preset-container-group");
 const presetContainerSelect = document.getElementById("preset-container-select");
 
+const pageOverlay = document.getElementById("page-overlay");
+const pageOverlayText = document.getElementById("page-overlay-text");
+
 const videoOptions = document.getElementById("video-options");
 const videoContainerSelect = document.getElementById("video-container-select");
 const videoCodecSelect = document.getElementById("video-codec-select");
@@ -69,6 +72,7 @@ const createDefaultSortState = () => ({
 });
 
 let isAnalyzing = false;
+let isConverting = false;
 let lastFocusedElement = null;
 let entryIdCounter = 0;
 
@@ -984,8 +988,44 @@ const anyUploadsExist = () =>
     (modeState) => modeState.selectedFiles.length || modeState.mediaEntries.length || modeState.results.length,
   );
 
+const isBusy = () => isAnalyzing || isConverting;
+
 const updateClearButtonState = () => {
-  clearBtn.disabled = !anyUploadsExist();
+  clearBtn.disabled = isBusy() || !anyUploadsExist();
+};
+
+const togglePageOverlay = (isVisible, message) => {
+  if (message && pageOverlayText) {
+    pageOverlayText.textContent = message;
+  }
+  if (pageOverlay) {
+    pageOverlay.hidden = !isVisible;
+  }
+  if (typeof document !== "undefined") {
+    document.body?.classList.toggle("is-busy", isVisible);
+  }
+};
+
+const syncInteractivity = () => {
+  const busy = isBusy();
+  const hasEntries = state.mediaEntries.length > 0;
+  if (fileInput) {
+    fileInput.disabled = busy;
+  }
+  if (folderSelectBtn) {
+    const disabled = busy || !canSelectDirectory;
+    folderSelectBtn.disabled = disabled;
+    folderSelectBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
+  }
+  if (directoryInput) {
+    directoryInput.disabled = busy;
+  }
+  modeTabs.forEach((tab) => {
+    tab.disabled = busy;
+    tab.setAttribute("aria-disabled", busy ? "true" : "false");
+  });
+  convertBtn.disabled = busy || !hasEntries;
+  updateClearButtonState();
 };
 
 const resetModeState = (mode) => {
@@ -1477,8 +1517,9 @@ const resetDirectoryInput = () => {
 
 const handleDirectoryInputChange = (event) => {
   if (!event?.target?.files) return;
-  if (isAnalyzing) {
-    setStatus("正在分析当前文件，请稍候再上传新文件");
+  if (isBusy()) {
+    const busyMessage = isConverting ? "正在转换文件，请稍候再上传新文件" : "正在分析当前文件，请稍候再上传新文件";
+    setStatus(busyMessage);
     resetDirectoryInput();
     return;
   }
@@ -1491,8 +1532,9 @@ const handleDirectoryInputChange = (event) => {
 };
 
 const handleFolderSelectClick = async () => {
-  if (isAnalyzing) {
-    setStatus("正在分析当前文件，请稍候再上传新文件");
+  if (isBusy()) {
+    const busyMessage = isConverting ? "正在转换文件，请等待当前任务完成" : "正在分析当前文件，请稍候再上传新文件";
+    setStatus(busyMessage);
     return;
   }
   if (supportsDirectoryPicker) {
@@ -1525,8 +1567,9 @@ const handleFolderSelectClick = async () => {
 
 const selectFiles = (files = []) => {
   closeDetailModal();
-  if (isAnalyzing) {
-    setStatus("正在分析当前文件，请稍候再上传新文件");
+  if (isBusy()) {
+    const busyMessage = isConverting ? "正在转换文件，请稍候再上传新文件" : "正在分析当前文件，请稍候再上传新文件";
+    setStatus(busyMessage);
     return;
   }
 
@@ -1810,20 +1853,20 @@ const analyzeEntry = async (entry, index) => {
 };
 
 const analyzeSelectedFiles = async ({ append = false } = {}) => {
-  if (!state.selectedFiles.length || isAnalyzing) return;
+  if (!state.selectedFiles.length || isAnalyzing || isConverting) return;
   isAnalyzing = true;
-  convertBtn.disabled = true;
+  syncInteractivity();
   clearLog();
   resetProgress();
-  setStatus(append ? "正在初始化新增文件..." : "正在初始化...");
-  if (fileInput) {
-    fileInput.disabled = true;
-  }
+  const initializingMessage = append ? "正在初始化新增文件..." : "正在初始化...";
+  setStatus(initializingMessage);
+  togglePageOverlay(true, initializingMessage);
 
   try {
     await loadFFmpeg();
     await cleanupTempFiles();
     setStatus("正在扫描文件...");
+    togglePageOverlay(true, "正在扫描文件...");
     const newEntries = await gatherMediaEntries(state.selectedFiles, currentMode);
     if (!newEntries.length) {
       const label = currentMode === MODES.VIDEO ? "视频" : "音频";
@@ -1838,8 +1881,6 @@ const analyzeSelectedFiles = async ({ append = false } = {}) => {
         analysisSection.hidden = true;
         configSection.hidden = true;
         state.config = null;
-      } else if (state.mediaEntries.length) {
-        convertBtn.disabled = false;
       }
       return;
     }
@@ -1871,16 +1912,14 @@ const analyzeSelectedFiles = async ({ append = false } = {}) => {
     prepareConfiguration({ restoreConfig: shouldRestoreConfig });
     state.config = captureConfigState();
     setStatus(append ? "新增文件分析完成" : "分析完成，可调整转换设置");
-    convertBtn.disabled = false;
   } catch (error) {
     console.error(error);
     appendLog(`错误：${error.message || error}`);
     setStatus("分析失败，请重试");
   } finally {
     isAnalyzing = false;
-    if (fileInput) {
-      fileInput.disabled = false;
-    }
+    togglePageOverlay(isConverting, isConverting ? "正在转换文件..." : "");
+    syncInteractivity();
     updateSortIndicators();
   }
 };
@@ -1995,8 +2034,9 @@ const buildAnalysisTable = (entries) => {
 
 const removeEntryById = (entryId) => {
   if (!entryId) return;
-  if (isAnalyzing) {
-    setStatus("正在分析文件，请稍候再删除");
+  if (isBusy()) {
+    const busyMessage = isConverting ? "正在转换，暂无法删除条目" : "正在分析文件，请稍候再删除";
+    setStatus(busyMessage);
     return;
   }
   const index = state.mediaEntries.findIndex((entry) => String(entry.id) === String(entryId));
@@ -2018,7 +2058,6 @@ const removeEntryById = (entryId) => {
     buildAnalysisTable(state.mediaEntries);
     prepareConfiguration({ restoreConfig: Boolean(state.config) });
     state.config = captureConfigState();
-    convertBtn.disabled = false;
     const removedLabel = shortenLabel(removed?.displayName || "选定文件");
     setStatus(`已移除 ${removedLabel}`);
   } else {
@@ -2027,12 +2066,11 @@ const removeEntryById = (entryId) => {
     analysisSection.hidden = true;
     configSection.hidden = true;
     state.config = null;
-    convertBtn.disabled = true;
     setStatus("已移除所有文件，等待操作");
   }
 
   updateFileInfo();
-  updateClearButtonState();
+  syncInteractivity();
   updateSortIndicators();
 };
 
@@ -2650,11 +2688,13 @@ const prepareConversionSettings = (entry, preset) => {
 };
 
 const convertEntries = async () => {
-  if (!state.mediaEntries.length) return;
-  convertBtn.disabled = true;
+  if (!state.mediaEntries.length || isConverting || isAnalyzing) return;
+  isConverting = true;
+  syncInteractivity();
   resetProgress();
   clearResults(state);
   setStatus("准备转换...");
+  togglePageOverlay(true, "正在准备转换...");
 
   const results = [];
 
@@ -2715,7 +2755,9 @@ const convertEntries = async () => {
             });
 
         appendLog(`执行命令：ffmpeg ${args.join(" ")}`);
-        setStatus(`正在转换 ${i + 1}/${state.mediaEntries.length}：${displayLabel}`);
+        const convertingMessage = `正在转换 ${i + 1}/${state.mediaEntries.length}：${displayLabel}`;
+        setStatus(convertingMessage);
+        togglePageOverlay(true, convertingMessage);
 
         let shouldRetry = false;
         let exitCode = 0;
@@ -2793,20 +2835,26 @@ const convertEntries = async () => {
     conversionProgress.label = "";
     conversionProgress.currentIndex = 0;
     setStatus("转换失败，请检查日志");
-    convertBtn.disabled = false;
+    isConverting = false;
+    togglePageOverlay(isAnalyzing, isAnalyzing ? "正在分析文件..." : "");
+    syncInteractivity();
     return;
   }
 
   if (!results.length) {
     setStatus("未生成任何输出文件");
-    convertBtn.disabled = false;
+    isConverting = false;
+    togglePageOverlay(false);
+    syncInteractivity();
     return;
   }
 
   state.results = results;
   renderResults(state);
   setStatus("转换完成，可下载结果");
-  convertBtn.disabled = false;
+  isConverting = false;
+  togglePageOverlay(false);
+  syncInteractivity();
 };
 
 const renderResults = (modeState = state) => {
@@ -2914,7 +2962,6 @@ const switchMode = (mode) => {
   if (state.mediaEntries.length) {
     buildAnalysisTable(state.mediaEntries);
     prepareConfiguration({ restoreConfig: true });
-    convertBtn.disabled = false;
     if (conversionProgress.total === 0) {
       setStatus("分析结果已加载，可调整转换设置");
     }
@@ -2923,7 +2970,6 @@ const switchMode = (mode) => {
     analysisSummary.textContent = "";
     analysisSection.hidden = true;
     configSection.hidden = true;
-    convertBtn.disabled = true;
     if (conversionProgress.total === 0) {
       const statusMessage = state.selectedFiles.length
         ? "正在准备分析，请稍候"
@@ -2932,7 +2978,7 @@ const switchMode = (mode) => {
     }
   }
   renderResults(state);
-  updateClearButtonState();
+  syncInteractivity();
   updateSortIndicators();
 };
 
@@ -2949,10 +2995,9 @@ const clearAllUploads = async () => {
   analysisSummary.textContent = "";
   analysisSection.hidden = true;
   configSection.hidden = true;
-  convertBtn.disabled = true;
   renderResults(state);
   updateFileInfo();
-  updateClearButtonState();
+  syncInteractivity();
   updateSortIndicators();
   setStatus("等待操作");
   if (ffmpegReady) {
@@ -3163,7 +3208,7 @@ if (supportsDirectoryInput && directoryInput) {
 }
 
 dropZone.addEventListener("dragover", (event) => {
-  if (isAnalyzing) return;
+  if (isBusy()) return;
   event.preventDefault();
   dropZone.classList.add("dragover");
 });
@@ -3175,8 +3220,9 @@ dropZone.addEventListener("dragleave", () => {
 dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
   dropZone.classList.remove("dragover");
-  if (isAnalyzing) {
-    setStatus("正在分析当前文件，请稍候再上传新文件");
+  if (isBusy()) {
+    const busyMessage = isConverting ? "正在转换当前文件，请稍候再上传新文件" : "正在分析当前文件，请稍候再上传新文件";
+    setStatus(busyMessage);
     return;
   }
   const files = event.dataTransfer?.files;
@@ -3195,7 +3241,7 @@ window.addEventListener("beforeunload", () => {
 updateModeTabs();
 updateFileInputForMode();
 updateFileInfo();
-updateClearButtonState();
+syncInteractivity();
 updateSortIndicators();
 renderResults(state);
 
